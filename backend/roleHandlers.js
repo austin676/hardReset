@@ -13,6 +13,8 @@
  *   error             (private)             — validation failures
  */
 
+const { startRoundTimer } = require('./timerHandlers');
+
 const {
   roomExists,
   getPlayers,
@@ -180,6 +182,11 @@ async function handleStartGame(socket, io, data) {
     // 7. Broadcast initial timerUpdate so clients can start their countdowns
     // -------------------------------------------------------------------------
     io.to(roomId).emit('timerUpdate', { roomId, timer: 180 });
+
+    // -------------------------------------------------------------------------
+    // 8. Start the server-authoritative round timer (Module 4)
+    // -------------------------------------------------------------------------
+    startRoundTimer(roomId, io);
 
     console.log(
       `[roleHandlers] gameStarted broadcast → room: ${roomId} | ` +

@@ -25,6 +25,8 @@ const {
   updatePlayerPosition,
 } = require('./state');
 
+const { isPlayerTimedOut } = require('./timerUtils');
+
 // ---------------------------------------------------------------------------
 // Tuning constants
 // ---------------------------------------------------------------------------
@@ -178,6 +180,13 @@ async function handlePlayerMove(socket, io, data) {
 
     if (!player.alive) {
       console.warn(`[movementHandlers] DROPPED — player is dead: ${socket.id}`);
+      return;
+    }
+
+    if (isPlayerTimedOut(player)) {
+      console.warn(
+        `[movementHandlers] DROPPED — player timed out until ${player.timeoutUntil}: ${socket.id}`
+      );
       return;
     }
 

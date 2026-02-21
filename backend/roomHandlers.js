@@ -22,6 +22,9 @@ const {
   playerExistsInRoom,
 } = require('./state');
 
+const { stopRoomTimer } = require('./timerHandlers');
+const { checkAndResolveIfComplete } = require('./meetingHandlers');
+
 // ---------------------------------------------------------------------------
 // Internal utility
 // ---------------------------------------------------------------------------
@@ -160,12 +163,17 @@ async function handleDisconnect(socket, io) {
 
       const empty = await isRoomEmpty(roomId);
       if (empty) {
+        stopRoomTimer(roomId); // cancel countdown before deleting room
         await deleteRoom(roomId);
         console.log(`[roomHandlers] Room ${roomId} deleted — no players remaining`);
       } else {
         // Tell remaining players this socket left (movement updates should stop)
         io.to(roomId).emit('playerLeft', { socketId: socket.id, roomId });
         await broadcastPlayerList(io, roomId);
+
+        // If a meeting is in progress and this player was the last unvoted voter,
+        // auto-resolve so the meeting doesn't stall indefinitely.
+        await checkAndResolveIfComplete(roomId, io);
       }
     } catch (err) {
       console.error(`[roomHandlers] disconnect cleanup error for room ${roomId}:`, err.message);
