@@ -18,7 +18,9 @@ require('dotenv').config();   // ← must be first so supabase.js can read vars
 
 const http = require('http');
 const { Server } = require('socket.io');
-const { registerRoomHandlers } = require('./roomHandlers');
+const { registerRoomHandlers }     = require('./roomHandlers');
+const { registerRoleHandlers }     = require('./roleHandlers');
+const { registerMovementHandlers } = require('./movementHandlers');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -67,9 +69,13 @@ io.on('connection', (socket) => {
   console.log(`[server] Client connected  — socket: ${socket.id}`);
 
   // Register all room-related event listeners for this socket.
-  // Adding more feature modules (e.g. gameHandlers, votingHandlers) is as
-  // simple as calling their registration function here.
   registerRoomHandlers(socket, io);
+
+  // Register game-start and role-assignment listeners (Module 2).
+  registerRoleHandlers(socket, io);
+
+  // Register real-time movement synchronisation listeners (Module 3).
+  registerMovementHandlers(socket, io);
 
   // Log clean disconnections for visibility (the handler in roomHandlers.js
   // takes care of state cleanup; this is purely for server-level logging).

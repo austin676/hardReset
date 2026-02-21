@@ -241,6 +241,176 @@ async function playerExistsInRoom(roomId, socketId) {
 }
 
 // ---------------------------------------------------------------------------
+// Game lifecycle helpers (Module 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * isGameStarted
+ * Returns true if the room's game_active flag is set.
+ * Used to prevent duplicate startGame calls.
+ *
+ * @param {string} roomId
+ * @returns {Promise<boolean>}
+ */
+async function isGameStarted(roomId) {
+  const { data } = await supabase
+    .from('rooms')
+    .select('game_active')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  return data?.game_active === true;
+}
+
+/**
+ * setGameActive
+ * Flips the game_active flag and resets the round timer on the room row.
+ *
+ * @param {string} roomId
+ * @param {boolean} active
+ */
+async function setGameActive(roomId, active) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ game_active: active, timer: 180, round: 1 })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] setGameActive failed: ${error.message}`);
+  console.log(`[state] Room ${roomId} game_active → ${active}`);
+}
+
+/**
+ * resetPlayersForGame
+ * Resets all players in a room to a fresh in-game state:
+ *   alive=true, tasksCompleted=0, sabotagePoints=0, vote=null, role=null
+ * Called before roles are (re-)assigned.
+ *
+ * @param {string} roomId
+ */
+async function resetPlayersForGame(roomId) {
+  const { error } = await supabase
+    .from('players')
+    .update({
+      alive:           true,
+      tasks_completed: 0,
+      sabotage_points: 0,
+      vote:            null,
+      role:            null,
+    })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] resetPlayersForGame failed: ${error.message}`);
+  console.log(`[state] Players reset for game in room: ${roomId}`);
+}
+
+/**
+ * updatePlayerRole
+ * Persists the role assigned to a single player.
+ *
+ * @param {string} socketId
+ * @param {string} role  — 'crewmate' | 'impostor'
+ */
+async function updatePlayerRole(socketId, role) {
+  const { error } = await supabase
+    .from('players')
+    .update({ role })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] updatePlayerRole failed: ${error.message}`);
+}
+
+/**
+ * getPlayerSocketIds
+ * Returns a plain array of socket_id strings for a room.
+ * Lightweight — used by role assignment which only needs the ids.
+ *
+ * @param {string} roomId
+ * @returns {Promise<string[]>}
+ */
+async function getPlayerSocketIds(roomId) {
+  const { data, error } = await supabase
+    .from('players')
+    .select('socket_id')
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] getPlayerSocketIds failed: ${error.message}`);
+  return (data || []).map((p) => p.socket_id);
+}
+
+// ---------------------------------------------------------------------------
+// Movement helpers (Module 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * updatePlayerPosition
+ * Updates position_x and position_y for a single player in Supabase.
+ * Called on every validated playerMove event.
+ *
+ * @param {string} roomId   - Used for logging only; FK ensures integrity.
+ * @param {string} socketId
+ * @param {number} x
+ * @param {number} y
+ */
+async function updatePlayerPosition(roomId, socketId, x, y) {
+  const { error } = await supabase
+    .from('players')
+    .update({ position_x: x, position_y: y })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] updatePlayerPosition failed: ${error.message}`);
+}
+
+/**
+ * getPlayerState
+ * Returns a single player's row as a normalised object, or null.
+ * Used by movement handler to check alive / meeting guard.
+ *
+ * @param {string} socketId
+ * @returns {Promise<object|null>}
+ */
+async function getPlayerState(socketId) {
+  const { data, error } = await supabase
+    .from('players')
+    .select('*')
+    .eq('socket_id', socketId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[state] getPlayerState failed: ${error.message}`);
+  if (!data) return null;
+
+  return {
+    socketId:       data.socket_id,
+    roomId:         data.room_id,
+    name:           data.name,
+    avatar:         data.avatar,
+    role:           data.role,
+    position:       { x: data.position_x, y: data.position_y },
+    alive:          data.alive,
+    tasksCompleted: data.tasks_completed,
+    sabotagePoints: data.sabotage_points,
+    vote:           data.vote,
+  };
+}
+
+/**
+ * isMeetingActive
+ * Returns the meetingActive flag for a room.
+ * Movement is blocked during meetings.
+ *
+ * @param {string} roomId
+ * @returns {Promise<boolean>}
+ */
+async function isMeetingActive(roomId) {
+  const { data } = await supabase
+    .from('rooms')
+    .select('meeting_active')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  return data?.meeting_active === true;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -255,4 +425,14 @@ module.exports = {
   getPlayers,
   isRoomEmpty,
   playerExistsInRoom,
+  // Module 2 — game lifecycle
+  isGameStarted,
+  setGameActive,
+  resetPlayersForGame,
+  updatePlayerRole,
+  getPlayerSocketIds,
+  // Module 3 — movement
+  updatePlayerPosition,
+  getPlayerState,
+  isMeetingActive,
 };
