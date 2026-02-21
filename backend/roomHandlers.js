@@ -22,6 +22,9 @@ const {
   playerExistsInRoom,
 } = require('./state');
 
+const { stopRoomTimer } = require('./timerHandlers');
+const { checkAndResolveIfComplete } = require('./meetingHandlers');
+
 // ---------------------------------------------------------------------------
 // Internal utility
 // ---------------------------------------------------------------------------
@@ -179,15 +182,39 @@ async function handleDisconnect(socket, io) {
 }
 
 // ---------------------------------------------------------------------------
-// Event: startGame
+// Registration helper
 // ---------------------------------------------------------------------------
 
 /**
- * handleStartGame
- * Expected payload: { roomId }
- * Assigns roles + tasks, starts round 1, and broadcasts gameStarted to the room.
+ * registerRoomHandlers
+ * Binds all room-related event listeners to a single socket.
+ * Call this inside the `io.on('connection', ...)` callback.
  */
-async function handleStartGame(socket, io, data) {
+function registerRoomHandlers(socket, io) {
+  socket.on('createRoom', (data) => handleCreateRoom(socket, io, data));
+  socket.on('joinRoom',   (data) => handleJoinRoom(socket, io, data));
+  socket.on('disconnect', ()     => handleDisconnect(socket, io));
+
+  console.log(`[roomHandlers] Handlers registered for socket: ${socket.id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+module.exports = {
+  registerRoomHandlers,
+  handleCreateRoom,
+  handleJoinRoom,
+  handleDisconnect,
+  broadcastPlayerList,
+};
+
+// ---------------------------------------------------------------------------
+// DEAD CODE BELOW — removed from active use (merged from wrong branch)
+// The real startGame lives in roleHandlers.js
+// ---------------------------------------------------------------------------
+async function handleStartGame_DEAD(socket, io, data) {
   const { roomId } = data;
 
   try {
@@ -324,98 +351,4 @@ function handleRecordAttempt(socket, io, data) {
   console.log(`[roomHandlers] recordAttempt ${socket.id} | task: ${taskId} | passed: ${passed} | attempts: ${entry.attempts}`);
 }
 
-// ---------------------------------------------------------------------------
-// Event: taskComplete
-// ---------------------------------------------------------------------------
-
-/**
- * handleTaskComplete
- * Expected payload: { roomId, taskId }
- * Marks a task as done for this player, checks win condition, broadcasts updates.
- */
-async function handleTaskComplete(socket, io, data) {
-  const { roomId, taskId } = data;
-
-  try {
-    const session = gameSessions.get(roomId);
-    if (!session) {
-      socket.emit('error', { message: 'No active game session found.' });
-      return;
-    }
-
-    const key = `${socket.id}:${taskId}`;
-    if (session.completedTasks.has(key)) return; // already counted
-
-    session.completedTasks.add(key);
-    const roomCompleted = session.completedTasks.size;
-
-    // Notify everyone of progress
-    io.to(roomId).emit('taskCompleted', {
-      playerId:           socket.id,
-      taskId,
-      roomCompletedTasks: roomCompleted,
-      totalRoomTasks:     session.totalTasks,
-    });
-
-    // Update activity log
-    const players = await getPlayers(roomId);
-    const player  = players.find((p) => p.socketId === socket.id);
-    const name    = player ? player.name : 'Someone';
-    io.to(roomId).emit('activityUpdate', {
-      message: `${name} completed a task`,
-    });
-
-    // --- Check coders win condition ----------------------------------------
-    if (roomCompleted >= session.totalTasks) {
-      io.to(roomId).emit('gameEnd', {
-        winner: 'coders',
-        stats:  { completedTasks: roomCompleted, totalTasks: session.totalTasks },
-      });
-      console.log(`[roomHandlers] coders win → room ${roomId}`);
-
-      // Generate AI reports asynchronously — don't block game end
-      triggerAIReports(io, roomId, session).then(() => {
-        gameSessions.delete(roomId);
-      });
-    }
-
-    await broadcastPlayerList(io, roomId);
-  } catch (err) {
-    console.error('[roomHandlers] taskComplete error:', err.message);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Registration helper
-// ---------------------------------------------------------------------------
-
-/**
- * registerRoomHandlers
- * Binds all room-related event listeners to a single socket.
- * Call this inside the `io.on('connection', ...)` callback.
- */
-function registerRoomHandlers(socket, io) {
-  socket.on('createRoom',    (data) => handleCreateRoom(socket, io, data));
-  socket.on('joinRoom',      (data) => handleJoinRoom(socket, io, data));
-  socket.on('startGame',     (data) => handleStartGame(socket, io, data));
-  socket.on('taskComplete',  (data) => handleTaskComplete(socket, io, data));
-  socket.on('recordAttempt', (data) => handleRecordAttempt(socket, io, data));
-  socket.on('disconnect',    ()     => handleDisconnect(socket, io));
-
-  console.log(`[roomHandlers] Handlers registered for socket: ${socket.id}`);
-}
-
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
-
-module.exports = {
-  registerRoomHandlers,
-  handleCreateRoom,
-  handleJoinRoom,
-  handleDisconnect,
-  handleStartGame,
-  handleTaskComplete,
-  handleRecordAttempt,
-  broadcastPlayerList,
-};
+// (merged-branch dead code below — not exported, not registered)
