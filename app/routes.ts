@@ -8,4 +8,5 @@ export default [
   route("discussion", "pages/Discussion.tsx"),
   route("results", "pages/Results.tsx"),
   route("controller", "pages/Controller.tsx"),
+  route("game", "routes/game.tsx"),
 ] satisfies RouteConfig;
