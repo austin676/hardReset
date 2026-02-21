@@ -1,5 +1,7 @@
 import * as Phaser from "phaser";
 import type { Direction, PlayerRole } from "../types/game.types";
+import { gameEventBus } from "../GameEventBus";
+import { GameEvents } from "../types/game.types";
 
 // ─── Player ───────────────────────────────────────────────
 // Among Us–style bean with per-frame canvas textures,
@@ -151,6 +153,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private lastDust = 0;
+  private lastMoveEmit = 0;  // throttle PLAYER_MOVE bus events
 
   constructor(scene: Phaser.Scene, x: number, y: number, name = "Agent", color = 0x3b82f6) {
     const baseKey = ensurePlayerTextures(scene, color);
@@ -249,8 +252,19 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       const wk = `${this.baseKey}_walk_${this.direction}`;
       if (this.anims.currentAnim?.key !== wk) this.anims.play(wk, true);
 
-      // Dust particles
+      // Throttled position broadcast for multiplayer (50 ms)
       const now = this.scene.time.now;
+      if (now - this.lastMoveEmit > 50) {
+        this.lastMoveEmit = now;
+        gameEventBus.emit(GameEvents.PLAYER_MOVE, {
+          x:         this.x,
+          y:         this.y,
+          direction: this.direction,
+          isMoving:  true,
+        });
+      }
+
+      // Dust particles
       if (now - this.lastDust > 220) {
         this.lastDust = now;
         const d = this.scene.add.circle(this.x, this.y + 8, 1, 0x94a3b8, 0.3).setDepth(2);

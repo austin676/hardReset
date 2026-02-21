@@ -52,9 +52,9 @@ export default function Login() {
     setLoading(true)
     setError('')
     if (isCreating) {
-      createRoom(name.trim(), color)
+      createRoom(name.trim(), color, topics)
     } else {
-      joinRoom(passedCode, name.trim(), color)
+      joinRoom(passedCode, name.trim(), color, topics)
     }
   }
 

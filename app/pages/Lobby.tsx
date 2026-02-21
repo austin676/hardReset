@@ -13,9 +13,9 @@ export default function Lobby() {
   const isHost = players.length > 0 && players[0]?.id === myPlayerId
   const canStart = players.length >= 2
 
-  // Navigate to playing screen when game starts
+  // Navigate to game screen when game starts
   useEffect(() => {
-    const onGameStarted = () => navigate('/playing')
+    const onGameStarted = () => navigate('/game')
     window.addEventListener('socket:gameStarted', onGameStarted)
     return () => window.removeEventListener('socket:gameStarted', onGameStarted)
   }, [navigate])

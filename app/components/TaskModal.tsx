@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { submitCode } from '../lib/puzzleService'
+import { submitCode, runCode } from '../lib/puzzleService'
 import type { Task } from '../lib/puzzleService'
 import { useSocket } from '../hooks/useSocket'
 import { useGameStore } from '../store/gameStore'
@@ -24,7 +24,10 @@ export default function TaskModal({ task, onClose }: Props) {
     setFeedback(null)
 
     try {
-      const result = await submitCode(task.id, task.language, code)
+      // Run via expectedOutput (LLM tasks) or by taskId (static tasks)
+      const result = task.expectedOutput !== undefined
+        ? await runCode(task.language, code, task.expectedOutput)
+        : await submitCode(task.id, task.language, code)
 
       // Always record the attempt to backend (for AI report)
       if (roomCode) emitRecordAttempt(roomCode, task.id, result.passed, code)

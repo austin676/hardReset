@@ -6,6 +6,40 @@ const { execute } = require("../services/judge0");
 const { validate } = require("../utils/validator");
 
 /**
+ * POST /api/tasks/run
+ *
+ * Ad-hoc execution for LLM-generated tasks (no taskId needed).
+ * Body: { language, userCode, expectedOutput }
+ * Returns: { passed, stdout, stderr, time, memory }
+ */
+router.post("/run", async (req, res) => {
+  try {
+    const { language, userCode, expectedOutput } = req.body;
+
+    if (!language || !userCode || expectedOutput === undefined) {
+      return res
+        .status(400)
+        .json({ error: "language, userCode, and expectedOutput are required" });
+    }
+
+    const result = await execute(userCode, language);
+    const passed = validate(result.stdout, expectedOutput);
+
+    return res.json({
+      passed,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      time:   result.time,
+      memory: result.memory,
+    });
+  } catch (err) {
+    console.error("[run] Error:", err.message);
+    const status = err.message.includes("timed out") ? 504 : 502;
+    return res.status(status).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/tasks/submit
  *
  * Body: { taskId, language, userCode }

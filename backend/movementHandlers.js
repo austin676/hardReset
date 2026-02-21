@@ -132,7 +132,7 @@ async function handlePlayerMove(socket, io, data) {
     try { data = JSON.parse(data); } catch (_) { data = {}; }
   }
 
-  const { roomId, x, y } = data || {};
+  const { roomId, x, y, direction } = data || {};
 
   // --- Guard: required fields -----------------------------------------------
   if (!roomId) {
@@ -156,63 +156,38 @@ async function handlePlayerMove(socket, io, data) {
   if (throttle) {
     const delta = euclideanDistance(throttle.lastX, throttle.lastY, x, y);
     if (delta < MIN_MOVE_DELTA) {
-      console.log(`[movementHandlers] DROPPED — delta too small (${delta.toFixed(2)}) (${socket.id})`);
       return;
     }
   }
 
-  try {
-    // --- Guard: room must exist -------------------------------------------
-    const exists = await roomExists(roomId);
-    if (!exists) {
-      console.warn(`[movementHandlers] DROPPED — room not found: ${roomId}`);
-      return;
+  // --- Apply optional map bounds ----------------------------------------
+  const bounded = applyBounds(x, y);
+
+  // Update throttle record immediately (before any async work)
+  throttleMap.set(socket.id, { lastMs: now, lastX: bounded.x, lastY: bounded.y });
+
+  // --- Broadcast IMMEDIATELY — don't wait for DB round-trips ---------------
+  socket.to(roomId).emit('playerMoved', {
+    socketId:  socket.id,
+    position:  { x: bounded.x, y: bounded.y },
+    direction: direction ?? 'down',
+  });
+
+  // --- Background DB validation + persist (fire-and-forget) ----------------
+  // Do NOT await these — they must not block the broadcast above
+  ;(async () => {
+    try {
+      const [exists, player, meeting] = await Promise.all([
+        roomExists(roomId),
+        getPlayerState(socket.id),
+        isMeetingActive(roomId),
+      ]);
+      if (!exists || !player || !player.alive || meeting) return;
+      await updatePlayerPosition(roomId, socket.id, bounded.x, bounded.y);
+    } catch (err) {
+      console.error(`[movementHandlers] background persist error (${socket.id}):`, err.message);
     }
-
-    // --- Guard: player must exist and be alive ----------------------------
-    const player = await getPlayerState(socket.id);
-    if (!player) {
-      console.warn(`[movementHandlers] DROPPED — player not found in DB: ${socket.id}`);
-      return;
-    }
-
-    if (!player.alive) {
-      console.warn(`[movementHandlers] DROPPED — player is dead: ${socket.id}`);
-      return;
-    }
-
-    // --- Guard: no movement during active meeting -------------------------
-    const meeting = await isMeetingActive(roomId);
-    if (meeting) {
-      console.warn(`[movementHandlers] DROPPED — meeting active in room: ${roomId}`);
-      return;
-    }
-
-    // --- Apply optional map bounds ----------------------------------------
-    const bounded = applyBounds(x, y);
-
-    // Update throttle record
-    throttleMap.set(socket.id, { lastMs: now, lastX: bounded.x, lastY: bounded.y });
-
-    // --- Persist to Supabase ----------------------------------------------
-    await updatePlayerPosition(roomId, socket.id, bounded.x, bounded.y);
-
-    // --- Broadcast to rest of room ----------------------------------------
-    // Check which sockets are currently in this Socket.io room for debugging
-    const roomSockets = await io.in(roomId).allSockets();
-    console.log(
-      `[movementHandlers] Broadcasting playerMoved in ${roomId} | ` +
-      `mover: ${socket.id} | room members: [${[...roomSockets].join(', ')}]`
-    );
-
-    socket.to(roomId).emit('playerMoved', {
-      socketId: socket.id,
-      position: { x: bounded.x, y: bounded.y },
-    });
-
-  } catch (err) {
-    console.error(`[movementHandlers] playerMove error (${socket.id}):`, err.message);
-  }
+  })();
 }
 
 /**

@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import type { Task } from '../lib/puzzleService'
 
 export interface Player {
   id: string
@@ -38,7 +40,7 @@ interface GameStore {
   chatMessages: ChatMessage[]
 
   // Tasks
-  myTaskIds: string[]
+  myTasks: Task[]
   completedTaskIds: string[]
   taskAttempts: Record<string, number>   // taskId → attempt count
   taskModalOpen: boolean
@@ -46,12 +48,22 @@ interface GameStore {
   totalRoomTasks: number
   roomCompletedTasks: number
 
+  // Scoring
+  scores: Record<string, number>          // socketId → total score
+  roundLeaderboard: { socketId: string; name: string; role: string; score: number }[]
+  leaderboardRound: number
+
   // End game
   winner: 'coders' | 'imposter' | null
   ejectedPlayer: Player | null
   wasImposter: boolean | null
   stats: Record<string, any> | null
   aiReports: Record<string, string>
+
+  // Scoring actions
+  setScores: (scores: Record<string, number>) => void
+  addScore: (playerId: string, delta: number) => void
+  setRoundLeaderboard: (round: number, leaderboard: { socketId: string; name: string; role: string; score: number }[]) => void
 
   // Actions
   setMyPlayerId: (id: string) => void
@@ -70,7 +82,7 @@ interface GameStore {
   setWinner: (winner: 'coders' | 'imposter') => void
   setStats: (stats: Record<string, any>) => void
   setAIReports: (reports: Record<string, string>) => void
-  setMyTaskIds: (ids: string[]) => void
+  setMyTasks: (tasks: Task[]) => void
   markTaskDone: (id: string) => void
   incrementAttempt: (taskId: string) => void
   setTaskModal: (open: boolean, taskId?: string | null) => void
@@ -90,13 +102,16 @@ const initialState = {
   activityLog: [],
   votes: {},
   chatMessages: [],
-  myTaskIds: [],
+  myTasks: [] as Task[],
   completedTaskIds: [],
   taskAttempts: {},
   taskModalOpen: false,
   activeTaskId: null,
   totalRoomTasks: 0,
   roomCompletedTasks: 0,
+  scores: {},
+  roundLeaderboard: [],
+  leaderboardRound: 0,
   winner: null,
   ejectedPlayer: null,
   wasImposter: null,
@@ -104,8 +119,15 @@ const initialState = {
   aiReports: {},
 }
 
-export const useGameStore = create<GameStore>((set) => ({
+export const useGameStore = create<GameStore>()(
+  persist(
+    (set) => ({
   ...initialState,
+
+  setScores: (scores) => set({ scores }),
+  addScore: (playerId, delta) =>
+    set((state) => ({ scores: { ...state.scores, [playerId]: (state.scores[playerId] ?? 0) + delta } })),
+  setRoundLeaderboard: (round, leaderboard) => set({ leaderboardRound: round, roundLeaderboard: leaderboard }),
 
   setMyPlayerId: (id) => set({ myPlayerId: id }),
   setMyRole: (role) => set({ myRole: role }),
@@ -136,7 +158,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setWinner: (winner) => set({ winner }),
   setStats: (stats) => set({ stats }),
   setAIReports: (reports) => set((state) => ({ aiReports: { ...state.aiReports, ...reports } })),
-  setMyTaskIds: (ids) => set({ myTaskIds: ids }),
+  setMyTasks: (tasks) => set({ myTasks: tasks }),
   markTaskDone: (id) =>
     set((state) => ({ completedTaskIds: [...new Set([...state.completedTaskIds, id])] })),
   incrementAttempt: (taskId) =>
@@ -147,4 +169,24 @@ export const useGameStore = create<GameStore>((set) => ({
   setRoomTaskProgress: (completed, total) =>
     set({ roomCompletedTasks: completed, totalRoomTasks: total }),
   reset: () => set(initialState),
-}))
+}),
+    {
+      name: 'hardReset-game-session',
+      // Guard against SSR — sessionStorage only exists in the browser
+      storage: createJSONStorage(() =>
+        typeof window !== 'undefined'
+          ? sessionStorage
+          : { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+      ),
+      // Only persist the fields needed to survive a refresh
+      partialize: (state) => ({
+        roomCode:    state.roomCode,
+        myPlayerId:  state.myPlayerId,
+        players:     state.players,
+        myRole:      state.myRole,
+        myTasks:     state.myTasks,
+        gamePhase:   state.gamePhase,
+      }),
+    }
+  )
+)

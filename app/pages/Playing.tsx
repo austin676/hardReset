@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { useGameStore } from '../store/gameStore'
 import { useSocket } from '../hooks/useSocket'
 import PlayerHUD from '../components/PlayerHUD'
 import TaskModal from '../components/TaskModal'
-import { fetchTasks } from '../lib/puzzleService'
-import type { Task } from '../lib/puzzleService'
 
 export default function Playing() {
   const navigate   = useNavigate()
@@ -14,7 +12,7 @@ export default function Playing() {
 
   const {
     myRole,
-    myTaskIds,
+    myTasks,
     completedTaskIds,
     taskAttempts,
     taskModalOpen,
@@ -27,25 +25,13 @@ export default function Playing() {
     players,
   } = useGameStore()
 
-  const [allTasks, setAllTasks] = useState<Task[]>([])
-  const [loadingTasks, setLoadingTasks] = useState(true)
-
-  // Fetch puzzle task details from the engine
-  useEffect(() => {
-    fetchTasks()
-      .then(setAllTasks)
-      .catch(() => setAllTasks([]))
-      .finally(() => setLoadingTasks(false))
-  }, [])
-
   // Navigate away when phase changes (meeting called or game ends)
   useEffect(() => {
     if (gamePhase === 'discussion' || gamePhase === 'ejection') navigate('/discussion')
     if (gamePhase === 'results') navigate('/results')
   }, [gamePhase, navigate])
 
-  const myTasks    = allTasks.filter((t) => myTaskIds.includes(t.id))
-  const activeTask = allTasks.find((t) => t.id === activeTaskId) ?? null
+  const activeTask = myTasks.find((t) => t.id === activeTaskId) ?? null
   const isImpostor = myRole === 'imposter'
   const progressPct = totalRoomTasks > 0
     ? Math.min(100, Math.round((roomCompletedTasks / totalRoomTasks) * 100))
@@ -112,11 +98,7 @@ export default function Playing() {
             {isImpostor ? 'Cover Tasks' : 'Your Tasks'}
           </p>
 
-          {loadingTasks ? (
-            <div className="text-center text-[#5050708] font-bold py-8 animate-pulse">
-              Loading tasks...
-            </div>
-          ) : myTasks.length === 0 ? (
+          {myTasks.length === 0 ? (
             <div className="text-center text-[#5050708] font-bold py-8">
               No tasks assigned yet
             </div>

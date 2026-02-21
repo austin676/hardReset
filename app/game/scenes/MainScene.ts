@@ -13,17 +13,9 @@ import { RemotePlayer } from "../objects/RemotePlayer";
 // ─── Per-room trim colour (Among Us–style border tint) ──────
 function roomTrimColor(id: string): number {
   const map: Record<string, number> = {
-    reactor:    0xff4466,
-    server:     0x00ccff,
-    security:   0xff8800,
-    medbay:     0x00ffaa,
-    cafeteria:  0xffdd00,
-    storage:    0xaa88ff,
-    admin:      0x4488ff,
-    weapons:    0xff3333,
-    shields:    0x33ff88,
-    navigation: 0x88ccff,
-    comms:      0xff88ff,
+    codelab: 0x00aaff,   // cool blue
+    cafeteria: 0xffcc33,   // warm gold
+    debugroom: 0xcc66ff,   // purple
   };
   return map[id] ?? 0x00ffff;
 }
@@ -62,6 +54,8 @@ export class MainScene extends Phaser.Scene {
   private nearestStation: TaskStation | null = null;
   private lastRoom = "";
   private readonly INTERACT_RANGE = 40;
+  private eKey!: Phaser.Input.Keyboard.Key;
+  private isTeleporting = false;
 
   constructor() { super({ key: "MainScene" }); }
 
@@ -78,23 +72,35 @@ export class MainScene extends Phaser.Scene {
     this.configCamera();
     this.scene.launch("HUDScene");
     this.wireEvents();
+
+    // E key for task interaction
+    this.eKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+    // Signal React that the scene is fully initialised — remote players can now be spawned
+    gameEventBus.emit("scene:ready", {});
   }
 
   /* ═══════════ UPDATE ═══════════════════════════════════ */
   update(): void {
+    if (!this.player?.active) return;
     this.player.handleMovement();
     this.player.updateOverlays();
     this.checkProximity();
     this.detectRoom();
+
+    // E key = interact with nearest station
+    if (Phaser.Input.Keyboard.JustDown(this.eKey) && this.nearestStation && !this.nearestStation.completed) {
+      gameEventBus.emit(GameEvents.TASK_INTERACT, { stationId: this.nearestStation.stationId, fromButton: true });
+    }
   }
 
   /* ── Map rendering ─────────────────────────────────── */
   private buildMap(): void {
     this.wallLayer = this.physics.add.staticGroup();
 
-    const floor   = this.add.graphics().setDepth(0);
-    const walls   = this.add.graphics().setDepth(2);
-    const trim    = this.add.graphics().setDepth(3);
+    const floor = this.add.graphics().setDepth(0);
+    const walls = this.add.graphics().setDepth(2);
+    const trim = this.add.graphics().setDepth(3);
     const details = this.add.graphics().setDepth(4);
 
     // ── 1. Corridor floors ──────────────────────────────
@@ -200,128 +206,85 @@ export class MainScene extends Phaser.Scene {
       const col = roomTrimColor(room.id);
       const dim = Phaser.Display.Color.IntegerToColor(col);
       const dimCol = Phaser.Display.Color.GetColor(
-        Math.floor(dim.red * 0.6), Math.floor(dim.green * 0.6), Math.floor(dim.blue * 0.6));
+        Math.floor(dim.red * 0.5), Math.floor(dim.green * 0.5), Math.floor(dim.blue * 0.5));
       const T = TILE;
 
       switch (room.id) {
-        case "reactor": {
-          // Central glowing reactor core (circle)
-          const cx = ox + rw / 2, cy = oy + rh / 2;
-          g.lineStyle(2, col, 0.8).strokeCircle(cx, cy, T * 1.5);
-          g.lineStyle(1, col, 0.3).strokeCircle(cx, cy, T * 2.5);
-          g.fillStyle(col, 0.15).fillCircle(cx, cy, T * 1.5);
-          // Pipes radiating from core
-          for (let a = 0; a < 4; a++) {
-            const angle = (a * Math.PI) / 2;
-            g.lineStyle(2, dimCol, 0.6)
-              .lineBetween(cx + Math.cos(angle) * T * 1.6, cy + Math.sin(angle) * T * 1.6,
-                           cx + Math.cos(angle) * T * 2.8, cy + Math.sin(angle) * T * 2.8);
-          }
-          break;
-        }
-        case "server": {
-          // Server racks — vertical rectangles along left & right walls
-          const rackW = T * 2, rackH = T * 4;
-          for (let i = 0; i < 2; i++) {
-            const rx = ox + T * 2 + i * (rw - T * 6);
-            g.fillStyle(dimCol, 0.6).fillRect(rx, oy + T * 2, rackW, rackH);
-            g.lineStyle(1, col, 0.5).strokeRect(rx, oy + T * 2, rackW, rackH);
-            // LED rows
-            for (let l = 0; l < 5; l++) {
-              g.fillStyle(l % 2 === 0 ? 0x00ff88 : 0xff4400, 0.8)
-               .fillRect(rx + 2, oy + T * 2 + l * (T * 0.7) + 2, 3, 2);
+        case "codelab": {
+          // ── Monitor desks (2 rows of workstations) ──
+          for (let row = 0; row < 2; row++) {
+            for (let desk = 0; desk < 3; desk++) {
+              const dx = ox + T * (2 + desk * 4);
+              const dy = oy + T * (3 + row * 7);
+              // Desk surface
+              g.fillStyle(dimCol, 0.55).fillRect(dx, dy, T * 3, T * 1.5);
+              g.lineStyle(1, col, 0.4).strokeRect(dx, dy, T * 3, T * 1.5);
+              // Monitor screen (bright rectangle on desk)
+              g.fillStyle(col, 0.15).fillRect(dx + T * 0.4, dy + T * 0.2, T * 2.2, T * 0.8);
+              g.lineStyle(0.8, col, 0.6).strokeRect(dx + T * 0.4, dy + T * 0.2, T * 2.2, T * 0.8);
             }
           }
-          break;
-        }
-        case "security": {
-          // Monitor bank along the bottom wall
-          const mw = rw - T * 4, mh = T * 2;
-          const mx = ox + T * 2, my = oy + rh - T * 3;
-          g.fillStyle(dimCol, 0.55).fillRect(mx, my, mw, mh);
-          g.lineStyle(1, col, 0.5).strokeRect(mx, my, mw, mh);
-          // Three screen dividers
-          for (let s = 1; s < 4; s++)
-            g.lineStyle(0.5, col, 0.3).lineBetween(mx + (mw / 4) * s, my, mx + (mw / 4) * s, my + mh);
-          break;
-        }
-        case "medbay": {
-          // Two scan beds
-          const bw = T * 3, bh = T * 1.5;
-          g.fillStyle(dimCol, 0.5).fillRect(ox + T * 2, oy + T * 2, bw, bh);
-          g.lineStyle(1, col, 0.5).strokeRect(ox + T * 2, oy + T * 2, bw, bh);
+          // Server rack along right wall
+          g.fillStyle(dimCol, 0.6).fillRect(ox + rw - T * 3, oy + T * 2, T * 1.5, T * 4);
+          g.lineStyle(1, col, 0.5).strokeRect(ox + rw - T * 3, oy + T * 2, T * 1.5, T * 4);
+          // LED dots
+          for (let l = 0; l < 5; l++) {
+            g.fillStyle(l % 2 === 0 ? 0x00ff88 : 0x00aaff, 0.8)
+              .fillRect(ox + rw - T * 2.8, oy + T * 2.5 + l * T * 0.7, 3, 2);
+          }
           break;
         }
         case "cafeteria": {
-          // Tables
-          const tw = T * 3, th = T * 1.5;
-          for (let i = 0; i < 2; i++) {
-            const tx = ox + T * 2 + i * (T * 5);
-            g.fillStyle(dimCol, 0.45).fillRect(tx, oy + rh / 2 - th / 2, tw, th);
-            g.lineStyle(1, col, 0.4).strokeRect(tx, oy + rh / 2 - th / 2, tw, th);
-          }
-          break;
-        }
-        case "storage": {
-          // Crates (stacked rectangles)
-          for (let i = 0; i < 3; i++) {
-            for (let j = 0; j < 2; j++) {
-              const cx = ox + T * (2 + i * 3);
-              const cy = oy + T * (2 + j * 2.5);
-              g.fillStyle(dimCol, 0.5).fillRect(cx, cy, T * 2, T * 2);
-              g.lineStyle(1, col, 0.4).strokeRect(cx, cy, T * 2, T * 2);
-              g.lineStyle(0.5, col, 0.2).lineBetween(cx, cy + T, cx + T * 2, cy + T);
+          // ── Round tables with chairs ──
+          const tablePositions = [
+            { cx: ox + T * 4, cy: oy + T * 5 },
+            { cx: ox + T * 10, cy: oy + T * 5 },
+            { cx: ox + T * 4, cy: oy + T * 11 },
+            { cx: ox + T * 10, cy: oy + T * 11 },
+          ];
+          for (const tp of tablePositions) {
+            // Table (circle)
+            g.fillStyle(dimCol, 0.5).fillCircle(tp.cx, tp.cy, T * 1.2);
+            g.lineStyle(1, col, 0.4).strokeCircle(tp.cx, tp.cy, T * 1.2);
+            // 4 chair dots around table
+            for (let c = 0; c < 4; c++) {
+              const angle = (c * Math.PI) / 2 + Math.PI / 4;
+              const sx = tp.cx + Math.cos(angle) * T * 1.8;
+              const sy = tp.cy + Math.sin(angle) * T * 1.8;
+              g.fillStyle(col, 0.2).fillCircle(sx, sy, T * 0.3);
             }
           }
+          // Vending machine (right wall)
+          g.fillStyle(dimCol, 0.6).fillRect(ox + rw - T * 3, oy + T * 7, T * 1.5, T * 2.5);
+          g.lineStyle(1, col, 0.5).strokeRect(ox + rw - T * 3, oy + T * 7, T * 1.5, T * 2.5);
+          g.fillStyle(col, 0.2).fillRect(ox + rw - T * 2.8, oy + T * 7.3, T * 1.1, T * 1);
           break;
         }
-        case "admin": {
-          // Central desk
-          const dw = rw - T * 4, dh = T * 2;
-          g.fillStyle(dimCol, 0.5).fillRect(ox + T * 2, oy + T * 2, dw, dh);
-          g.lineStyle(1, col, 0.5).strokeRect(ox + T * 2, oy + T * 2, dw, dh);
-          // Monitor on desk
-          g.fillStyle(col, 0.2).fillRect(ox + rw / 2 - T, oy + T * 2 - T, T * 2, T);
-          g.lineStyle(1, col, 0.6).strokeRect(ox + rw / 2 - T, oy + T * 2 - T, T * 2, T);
-          break;
-        }
-        case "weapons": {
-          // Weapon rack — horizontal bars
-          for (let w = 0; w < 3; w++) {
-            const wy = oy + T * (2 + w * 2);
-            g.fillStyle(dimCol, 0.5).fillRect(ox + T * 2, wy, rw - T * 4, T);
-            g.lineStyle(1, col, 0.4).strokeRect(ox + T * 2, wy, rw - T * 4, T);
-          }
-          break;
-        }
-        case "shields": {
-          // Hexagon shield display
+        case "debugroom": {
+          // ── Central debug console (hexagonal) ──
           const cx = ox + rw / 2, cy = oy + rh / 2;
           g.lineStyle(2, col, 0.7);
           drawHexagon(g, cx, cy, T * 2);
           g.fillStyle(col, 0.08);
           drawHexagonFill(g, cx, cy, T * 2);
-          break;
-        }
-        case "navigation": {
-          // Star chart ring
-          const cx = ox + rw / 2, cy = oy + rh / 2;
-          g.lineStyle(2, col, 0.6).strokeCircle(cx, cy, T * 2);
-          g.lineStyle(0.5, col, 0.2).strokeCircle(cx, cy, T * 1);
-          g.lineStyle(1, col, 0.3)
-            .lineBetween(cx - T * 2.3, cy, cx + T * 2.3, cy)
-            .lineBetween(cx, cy - T * 2.3, cx, cy + T * 2.3);
-          break;
-        }
-        case "comms": {
-          // Antenna + wave arcs
-          const ax = ox + rw / 2, ay = oy + T * 2;
-          g.lineStyle(2, col, 0.6).lineBetween(ax, ay, ax, ay + T * 2);
-          for (let w = 1; w <= 2; w++) {
-            g.lineStyle(1, col, 0.4 - w * 0.1);
-            g.beginPath();
-            g.arc(ax, ay + T, T * w, Math.PI + 0.9, -0.9, true);
-            g.strokePath();
+          // Inner ring
+          g.lineStyle(1, col, 0.3);
+          drawHexagon(g, cx, cy, T * 1);
+          // Pulse indicator
+          g.fillStyle(col, 0.3).fillCircle(cx, cy, T * 0.4);
+          g.fillStyle(0xffffff, 0.5).fillCircle(cx, cy, T * 0.15);
+
+          // Log display panels (left and right walls)
+          for (let side = 0; side < 2; side++) {
+            const px = ox + T * 2 + side * (rw - T * 5);
+            g.fillStyle(dimCol, 0.5).fillRect(px, oy + T * 3, T * 2.5, T * 5);
+            g.lineStyle(1, col, 0.5).strokeRect(px, oy + T * 3, T * 2.5, T * 5);
+            // Fake log lines
+            for (let line = 0; line < 6; line++) {
+              const w = T * (0.8 + (line * 13 % 7) * 0.2);
+              g.fillStyle(col, 0.15 + (line % 3) * 0.05)
+                .fillRect(px + 3, oy + T * 3.5 + line * T * 0.7, w, 2);
+            }
           }
           break;
         }
@@ -418,15 +381,79 @@ export class MainScene extends Phaser.Scene {
 
   /* ── Event wiring ──────────────────────────────────── */
   private wireEvents(): void {
-    gameEventBus.on(GameEvents.TASK_INTERACT, (data: { stationId?: string; fromButton?: boolean }) => {
-      if (data.fromButton && this.nearestStation) {
-        this.nearestStation.markComplete();
-        gameEventBus.emit(GameEvents.TASK_COMPLETE, { stationId: this.nearestStation.stationId });
-        this.nearestStation = null;
-        gameEventBus.emit(GameEvents.HUD_NEAR_STATION, { near: false, label: "" });
+    // Helper: re-enable input after any modal/meeting closes
+    const resumeInput = () => {
+      this.player.enableMovement();
+      if (this.input.keyboard) this.input.keyboard.enabled = true;
+    };
+
+    // Helper: freeze input when a modal/meeting opens
+    const freezeInput = () => {
+      this.player.disableMovement();
+      if (this.input.keyboard) this.input.keyboard.enabled = false;
+    };
+
+    // ── Keyboard E → open coding puzzle popup ──
+    this.input.keyboard?.on("keydown-E", () => {
+      if (this.nearestStation && !this.nearestStation.completed) {
+        freezeInput();
+        gameEventBus.emit(GameEvents.OPEN_PUZZLE, {
+          stationId: this.nearestStation.stationId,
+          label: this.nearestStation.label,
+        });
       }
     });
 
+    // ── Task interact: [E] USE button or station click → open puzzle popup ──
+    gameEventBus.on(GameEvents.TASK_INTERACT, (data: { stationId?: string; label?: string; fromButton?: boolean }) => {
+      freezeInput();
+
+      if (data.fromButton && this.nearestStation) {
+        gameEventBus.emit(GameEvents.OPEN_PUZZLE, {
+          stationId: this.nearestStation.stationId,
+          label: this.nearestStation.label,
+        });
+      } else if (data.stationId) {
+        gameEventBus.emit(GameEvents.OPEN_PUZZLE, {
+          stationId: data.stationId,
+          label: data.label ?? data.stationId,
+        });
+      }
+    });
+
+    // ── Task complete (from React modal submit) ──
+    gameEventBus.on(GameEvents.TASK_COMPLETE, (data: { stationId: string }) => {
+      const station = this.stations.find(s => s.stationId === data.stationId);
+      if (station && !station.completed) {
+        station.markComplete();
+        this.nearestStation = null;
+        gameEventBus.emit(GameEvents.HUD_NEAR_STATION, { near: false, label: "" });
+      }
+      this.cameras.main.shake(150, 0.005);
+      resumeInput();
+    });
+
+    // ── Task modal closed without completing ──
+    gameEventBus.on(GameEvents.TASK_MODAL_CLOSE, () => resumeInput());
+
+    // ── Meeting: call → freeze + launch MeetingScene ──
+    gameEventBus.on(GameEvents.CALL_MEETING, () => {
+      freezeInput();
+      this.scene.pause("MainScene");
+      this.scene.launch("MeetingScene");
+    });
+
+    // ── Report body → same as meeting for demo ──
+    gameEventBus.on(GameEvents.REPORT_BODY, () => {
+      freezeInput();
+      this.scene.pause("MainScene");
+      this.scene.launch("MeetingScene");
+    });
+
+    // ── Meeting end ──
+    gameEventBus.on(GameEvents.MEETING_END, () => resumeInput());
+
+    // ── Remote players ──
     gameEventBus.on(GameEvents.REMOTE_PLAYER_MOVE, (data: PlayerState) => {
       let rp = this.remotePlayers.get(data.id);
       if (!rp) {
@@ -441,6 +468,17 @@ export class MainScene extends Phaser.Scene {
       if (rp) { rp.destroy(); this.remotePlayers.delete(data.id); }
     });
 
-    gameEventBus.on(GameEvents.MEETING_END, () => this.player.enableMovement());
+    // ── Cleanup on scene shutdown (prevents listener duplication) ──
+    this.events.on("shutdown", () => {
+      this.input.keyboard?.removeAllListeners("keydown-E");
+      gameEventBus.removeAllListeners(GameEvents.TASK_INTERACT);
+      gameEventBus.removeAllListeners(GameEvents.TASK_COMPLETE);
+      gameEventBus.removeAllListeners(GameEvents.TASK_MODAL_CLOSE);
+      gameEventBus.removeAllListeners(GameEvents.CALL_MEETING);
+      gameEventBus.removeAllListeners(GameEvents.REPORT_BODY);
+      gameEventBus.removeAllListeners(GameEvents.MEETING_END);
+      gameEventBus.removeAllListeners(GameEvents.REMOTE_PLAYER_MOVE);
+      gameEventBus.removeAllListeners(GameEvents.PLAYER_LEAVE);
+    });
   }
 }

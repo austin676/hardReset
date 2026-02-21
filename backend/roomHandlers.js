@@ -23,11 +23,15 @@ const {
 } = require('./state');
 
 const { generateReport } = require('./aiService');
+const { generateTasksForPlayer } = require('./taskGenerator');
 
 // Task metadata keyed by taskId — mirrors devhacks-puzzle/src/data/tasks.json
 // Update this when new tasks are added to the puzzle engine.
 const TASK_META = require('../devhacks-puzzle/src/data/tasks.json')
   .reduce((map, t) => { map[t.id] = { domain: t.domain, language: t.language, prompt: t.prompt }; return map; }, {});
+
+// Module-level map: socketId → topics[]  (populated on createRoom / joinRoom)
+const playerTopics = new Map();
 
 // ---------------------------------------------------------------------------
 // In-memory game session state (task tracking per room)
@@ -49,6 +53,9 @@ const TASK_META = require('../devhacks-puzzle/src/data/tasks.json')
  */
 const gameSessions = new Map();
 
+// Per-room round timer intervals  Map<roomId, NodeJS.Timeout>
+const roomTimers = new Map();
+
 // All task IDs available in the puzzle engine (from tasks.json)
 const ALL_TASK_IDS = [
   'python_oops_1',
@@ -60,6 +67,9 @@ const ALL_TASK_IDS = [
 ];
 
 const TASKS_PER_PLAYER = 2;
+const ROUND_DURATION   = 180;  // 3 minutes per round
+const MAX_ROUNDS       = 3;
+const POINTS_PER_TASK  = 100;
 
 // ---------------------------------------------------------------------------
 // Internal utility
@@ -81,6 +91,115 @@ async function broadcastPlayerList(io, roomId) {
 }
 
 // ---------------------------------------------------------------------------
+// Round timer helpers
+// ---------------------------------------------------------------------------
+
+function stopRoundTimer(roomId) {
+  const existing = roomTimers.get(roomId);
+  if (existing) {
+    clearInterval(existing);
+    roomTimers.delete(roomId);
+  }
+}
+
+async function handleRoundEnd(io, roomId) {
+  stopRoundTimer(roomId);
+
+  const session = gameSessions.get(roomId);
+  if (!session) return;
+
+  const { currentRound, scores } = session;
+
+  // Build leaderboard from current scores
+  const players = await getPlayers(roomId);
+  const leaderboard = players.map(p => ({
+    socketId: p.socketId,
+    name:     p.name,
+    role:     p.socketId === session.impostorId ? 'imposter' : 'coder',
+    score:    scores.get(p.socketId) ?? 0,
+  })).sort((a, b) => b.score - a.score);
+
+  io.to(roomId).emit('roundEnd', { round: currentRound, leaderboard });
+  console.log(`[roomHandlers] roundEnd → room ${roomId} | round ${currentRound}`);
+
+  if (currentRound >= MAX_ROUNDS) {
+    // Final round — game over
+    const winner = 'coders'; // coders win if they finish all rounds
+    io.to(roomId).emit('gameEnd', {
+      winner,
+      leaderboard,
+      stats: { completedTasks: session.completedTasks.size, totalTasks: session.totalTasks },
+    });
+    gameSessions.delete(roomId);
+    return;
+  }
+
+  // ---- Advance to next round ------------------------------------------------
+  const nextRound = currentRound + 1;
+  session.currentRound  = nextRound;
+  session.completedTasks = new Set();
+
+  // Regenerate tasks for every player
+  const coders = players.filter(p => p.socketId !== session.impostorId);
+  const assignments = new Map();
+
+  const coderTaskResults = await Promise.all(
+    coders.map(p =>
+      generateTasksForPlayer(playerTopics.get(p.socketId) || [], p.socketId, TASKS_PER_PLAYER)
+    )
+  );
+  coders.forEach((p, i) => assignments.set(p.socketId, coderTaskResults[i]));
+
+  const impostorTasks = await generateTasksForPlayer(
+    playerTopics.get(session.impostorId) || [], session.impostorId, TASKS_PER_PLAYER
+  );
+  assignments.set(session.impostorId, impostorTasks);
+  session.taskAssignments = assignments;
+  session.totalTasks = coders.length * TASKS_PER_PLAYER;
+
+  // Notify each player of the new round + their new tasks
+  for (const player of players) {
+    const myTasks = assignments.get(player.socketId) || [];
+    io.to(player.socketId).emit('roundStart', {
+      round:   nextRound,
+      myTasks,
+      scores:  Object.fromEntries(scores),
+    });
+  }
+
+  // Give players 3 seconds to see the leaderboard, then start the timer
+  setTimeout(() => {
+    startRoundTimer(io, roomId);
+  }, 3000);
+
+  console.log(`[roomHandlers] roundStart → room ${roomId} | round ${nextRound}`);
+}
+
+function startRoundTimer(io, roomId) {
+  stopRoundTimer(roomId);          // safety: clear any existing
+
+  const session = gameSessions.get(roomId);
+  if (!session) return;
+
+  session.timerLeft = ROUND_DURATION;
+
+  const interval = setInterval(async () => {
+    const s = gameSessions.get(roomId);
+    if (!s) { clearInterval(interval); roomTimers.delete(roomId); return; }
+
+    s.timerLeft -= 1;
+    io.to(roomId).emit('timerUpdate', { timeLeft: s.timerLeft, round: s.currentRound });
+
+    if (s.timerLeft <= 0) {
+      await handleRoundEnd(io, roomId);
+    }
+  }, 1000);
+
+  roomTimers.set(roomId, interval);
+}
+
+
+// ---------------------------------------------------------------------------
 // Event: createRoom
 // ---------------------------------------------------------------------------
 
@@ -90,7 +209,8 @@ async function broadcastPlayerList(io, roomId) {
  * Emits:  roomCreated → { roomId, players }
  */
 async function handleCreateRoom(socket, io, data) {
-  const { name, avatar } = data;
+  const { name, avatar, topics } = data;
+  playerTopics.set(socket.id, Array.isArray(topics) ? topics : []);
 
   // Validate name
   if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -132,7 +252,8 @@ async function handleCreateRoom(socket, io, data) {
  * Broadcasts to room:   playerListUpdated → { roomId, players }
  */
 async function handleJoinRoom(socket, io, data) {
-  const { roomId, name, avatar } = data;
+  const { roomId, name, avatar, topics } = data;
+  playerTopics.set(socket.id, Array.isArray(topics) ? topics : []);
 
   // --- Guard: name -------------------------------------------------------
   if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -199,6 +320,8 @@ async function handleDisconnect(socket, io) {
 
       const empty = await isRoomEmpty(roomId);
       if (empty) {
+        stopRoundTimer(roomId);
+        gameSessions.delete(roomId);
         await deleteRoom(roomId);
         console.log(`[roomHandlers] Room ${roomId} deleted — no players remaining`);
       } else {
@@ -235,23 +358,23 @@ async function handleStartGame(socket, io, data) {
     const impostorIdx  = Math.floor(Math.random() * players.length);
     const impostorId   = players[impostorIdx].socketId;
 
-    // --- Shuffle task pool and assign tasks per player (coders only) -------
-    const shuffled     = [...ALL_TASK_IDS].sort(() => Math.random() - 0.5);
-    const assignments  = new Map();   // socketId → string[]
+    // --- Generate personalised tasks for every player via LLM ---------------
     const coders       = players.filter((p) => p.socketId !== impostorId);
-    let   taskIdx      = 0;
+    const assignments  = new Map();   // socketId → Task[]
 
-    for (const coder of coders) {
-      const myTasks = [];
-      for (let i = 0; i < TASKS_PER_PLAYER; i++) {
-        myTasks.push(shuffled[taskIdx % shuffled.length]);
-        taskIdx++;
-      }
-      assignments.set(coder.socketId, myTasks);
-    }
+    // Generate for coders in parallel
+    const coderTaskResults = await Promise.all(
+      coders.map((p) =>
+        generateTasksForPlayer(playerTopics.get(p.socketId) || [], p.socketId, TASKS_PER_PLAYER)
+      )
+    );
+    coders.forEach((p, i) => assignments.set(p.socketId, coderTaskResults[i]));
 
-    // Impostor gets a fake task list (same interface, they just never complete)
-    assignments.set(impostorId, shuffled.slice(0, TASKS_PER_PLAYER));
+    // Impostor gets their own generated tasks too (they just don't need to finish)
+    const impostorTasks = await generateTasksForPlayer(
+      playerTopics.get(impostorId) || [], impostorId, TASKS_PER_PLAYER
+    );
+    assignments.set(impostorId, impostorTasks);
 
     const totalTasks = coders.length * TASKS_PER_PLAYER;
 
@@ -263,23 +386,35 @@ async function handleStartGame(socket, io, data) {
       hostSocketId:     socket.id,
       impostorId,
       playerAttempts:   new Map(),   // socketId → Map<taskId, AttemptData>
+      currentRound:     1,
+      timerLeft:        ROUND_DURATION,
+      scores:           new Map(players.map(p => [p.socketId, 0])),
     });
 
     // --- Broadcast to each player individually (sends their own tasks) -----
+    // Safe player list (no roles revealed cross-player)
+    const safePlayerList = players.map(({ socketId, name, avatar, alive }) => ({
+      socketId, name, avatar, alive,
+    }));
+
     for (const player of players) {
       const role    = player.socketId === impostorId ? 'imposter' : 'coder';
       const myTasks = assignments.get(player.socketId) || [];
 
       io.to(player.socketId).emit('gameStarted', {
         role,
-        myTaskIds:        myTasks,
-        totalRoomTasks:   totalTasks,
+        myTasks,
+        totalRoomTasks:     totalTasks,
         roomCompletedTasks: 0,
-        roundNumber:      1,
+        roundNumber:        1,
+        players:            safePlayerList,   // ← full lobby for Phaser spawning
       });
     }
 
     console.log(`[roomHandlers] gameStarted → room ${roomId} | impostor: ${impostorId} | totalTasks: ${totalTasks}`);
+
+    // Start round 1 timer (slight delay so clients can render the game)
+    setTimeout(() => startRoundTimer(io, roomId), 2000);
   } catch (err) {
     console.error('[roomHandlers] startGame error:', err.message);
     socket.emit('error', { message: 'Failed to start game.' });
@@ -330,7 +465,15 @@ function handleRecordAttempt(socket, io, data) {
   }
 
   const playerMap = session.playerAttempts.get(socket.id);
-  const meta      = TASK_META[taskId] || { domain: 'unknown', language: 'unknown', prompt: taskId };
+  // Support both static task IDs (TASK_META) and LLM-generated tasks stored in taskAssignments
+  let meta = TASK_META[taskId];
+  if (!meta) {
+    const playerTasks = session.taskAssignments.get(socket.id) || [];
+    const found = playerTasks.find((t) => t.id === taskId);
+    meta = found
+      ? { domain: found.domain, language: found.language, prompt: found.prompt }
+      : { domain: 'unknown', language: 'unknown', prompt: taskId };
+  }
 
   if (!playerMap.has(taskId)) {
     playerMap.set(taskId, {
@@ -383,6 +526,19 @@ async function handleTaskComplete(socket, io, data) {
     session.completedTasks.add(key);
     const roomCompleted = session.completedTasks.size;
 
+    // Award points to the solver
+    const prevScore = session.scores.get(socket.id) ?? 0;
+    const newScore  = prevScore + POINTS_PER_TASK;
+    session.scores.set(socket.id, newScore);
+
+    // Broadcast score update to the room
+    io.to(roomId).emit('scoreUpdate', {
+      playerId: socket.id,
+      score:    newScore,
+      delta:    POINTS_PER_TASK,
+      scores:   Object.fromEntries(session.scores),
+    });
+
     // Notify everyone of progress
     io.to(roomId).emit('taskCompleted', {
       playerId:           socket.id,
@@ -401,8 +557,18 @@ async function handleTaskComplete(socket, io, data) {
 
     // --- Check coders win condition ----------------------------------------
     if (roomCompleted >= session.totalTasks) {
+      stopRoundTimer(roomId);
+      const players = await getPlayers(roomId);
+      const leaderboard = players.map(p => ({
+        socketId: p.socketId,
+        name:     p.name,
+        role:     p.socketId === session.impostorId ? 'imposter' : 'coder',
+        score:    session.scores.get(p.socketId) ?? 0,
+      })).sort((a, b) => b.score - a.score);
+
       io.to(roomId).emit('gameEnd', {
         winner: 'coders',
+        leaderboard,
         stats:  { completedTasks: roomCompleted, totalTasks: session.totalTasks },
       });
       console.log(`[roomHandlers] coders win → room ${roomId}`);

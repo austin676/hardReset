@@ -18,6 +18,8 @@ const getSocket = (): Socket => {
   return socketInstance
 }
 
+export { getSocket }
+
 // Backend sends { socketId, alive, avatar, ... } — normalise to store shape
 const normalizePlayer = (p: any): Player => ({
   id:              p.socketId,
@@ -47,10 +49,13 @@ export const useSocket = () => {
     setStats,
     setAIReports,
     setMyRole,
-    setMyTaskIds,
+    setMyTasks,
     markTaskDone,
     setTaskModal,
     setRoomTaskProgress,
+    setScores,
+    addScore,
+    setRoundLeaderboard,
     players,
   } = useGameStore()
 
@@ -102,9 +107,10 @@ export const useSocket = () => {
       setGamePhase('ejection')
     })
 
-    socket.on('gameEnd', ({ winner, stats }: any) => {
+    socket.on('gameEnd', ({ winner, stats, leaderboard }: any) => {
       setWinner(winner)
       setStats(stats)
+      if (leaderboard) setRoundLeaderboard(0, leaderboard)
       setGamePhase('results')
     })
 
@@ -115,19 +121,79 @@ export const useSocket = () => {
       setPlayers(updated)
     })
 
-    socket.on('roundStart', ({ roundNumber }: any) => {
-      setRoundNumber(roundNumber)
+    socket.on('roundStart', ({ round, myTasks, scores: allScores }: any) => {
+      setRoundNumber(round)
+      if (myTasks) setMyTasks(myTasks)
+      if (allScores) setScores(allScores)
       setGamePhase('playing')
     })
 
+    // ── Private role assignment (impostor or crewmate) ───────────────────────
+    socket.on('roleAssigned', ({ role }: any) => {
+      if (role) setMyRole(role === 'impostor' ? 'imposter' : 'coder')
+    })
+
+    // ── Imposter ability received — forward into Phaser event bus ────────────
+    socket.on('abilityReceived', ({ fromId, fromName, abilityType }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('ability:received', { fromId, fromName, abilityType })
+      })
+    })
+
+    // ── Ability used confirmation ──────────────────────────────────────────────
+    socket.on('abilityUsed', ({ abilityType, targetName }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('ability:used', { abilityType, targetName })
+      })
+    })
+
     // ── Task events (puzzle engine integration) ──────────────────
-    socket.on('gameStarted', ({ role, myTaskIds, totalRoomTasks, roomCompletedTasks, roundNumber }: any) => {
+    socket.on('gameStarted', ({ role, myTasks, totalRoomTasks, roomCompletedTasks, roundNumber, players: allPlayers }: any) => {
       setMyRole(role)
-      setMyTaskIds(myTaskIds)
+      setMyTasks(myTasks)
       setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
       setRoundNumber(roundNumber)
       setGamePhase('playing')
+      // Update store players list so PhaserGame can read it after scene:ready
+      if (Array.isArray(allPlayers)) {
+        setPlayers(allPlayers.map(normalizePlayer))
+      }
       window.dispatchEvent(new CustomEvent('socket:gameStarted'))
+      // NOTE: remote player spawning happens in PhaserGame once scene:ready fires
+    })
+
+    // ── Real-time movement: forward other players into Phaser ────────────────
+    socket.on('playerMoved', ({ socketId, position, direction }: any) => {
+      if (socketId === socket.id) return  // ignore echo (shouldn't happen)
+      // Look up this player in the store to get name + color
+      const { players: storePlayers } = useGameStore.getState()
+      const found = storePlayers.find((p) => p.id === socketId)
+      const colorNum = found?.color
+        ? (typeof found.color === 'string'
+            ? parseInt((found.color as string).replace('#', ''), 16)
+            : (found.color as unknown as number))
+        : 0xef4444
+
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('remote:player:move', {
+          id:        socketId,
+          x:         position.x,
+          y:         position.y,
+          direction: direction ?? 'down',
+          isMoving:  true,
+          role:      'agent',
+          name:      found?.name ?? '???',
+          color:     colorNum,
+          alive:     found?.isAlive ?? true,
+        })
+      })
+    })
+
+    // ── Player left: remove from Phaser world ────────────────────────────────
+    socket.on('playerLeft', ({ socketId }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('player:leave', { id: socketId })
+      })
     })
 
     socket.on('taskCompleted', ({ playerId, taskId, roomCompletedTasks, totalRoomTasks }: any) => {
@@ -141,8 +207,18 @@ export const useSocket = () => {
       setActivityLog([message, ...activityLog].slice(0, 20))
     })
 
-    socket.on('roundEnd', ({ roundNumber }: any) => {
-      setRoundNumber(roundNumber)
+    socket.on('roundEnd', ({ round, leaderboard }: any) => {
+      setRoundNumber(round)
+      if (leaderboard) {
+        setRoundLeaderboard(round, leaderboard)
+        import('~/game/GameEventBus').then(({ gameEventBus }) => {
+          gameEventBus.emit('round:end', { round, leaderboard })
+        })
+      }
+    })
+
+    socket.on('scoreUpdate', ({ scores: allScores }: any) => {
+      if (allScores) setScores(allScores)
     })
 
     socket.on('timerUpdate', ({ timeLeft }: any) => {
@@ -175,15 +251,22 @@ export const useSocket = () => {
       socket.off('gameStarted')
       socket.off('taskCompleted')
       socket.off('activityUpdate')
+      socket.off('playerMoved')
+      socket.off('playerLeft')
+      socket.off('roleAssigned')
+      socket.off('abilityReceived')
+      socket.off('abilityUsed')
+    socket.off('scoreUpdate')
     }
+
   }, [players])
 
   // ── Emit helpers ─────────────────────────────────────────────
-  const createRoom = (name: string, color: string) =>
-    socket.emit('createRoom', { name, avatar: color })
+  const createRoom = (name: string, color: string, topics: string[] = []) =>
+    socket.emit('createRoom', { name, avatar: color, topics })
 
-  const joinRoom = (roomId: string, name: string, color: string) =>
-    socket.emit('joinRoom', { roomId, name, avatar: color })
+  const joinRoom = (roomId: string, name: string, color: string, topics: string[] = []) =>
+    socket.emit('joinRoom', { roomId, name, avatar: color, topics })
 
   const callMeeting = (calledBy: string) =>
     socket.emit('callMeeting', { calledBy })
@@ -206,6 +289,9 @@ export const useSocket = () => {
   const emitRecordAttempt = (roomId: string, taskId: string, passed: boolean, userCode: string) =>
     socket.emit('recordAttempt', { roomId, taskId, passed, userCode })
 
+  const useAbility = (roomId: string, abilityType: string) =>
+    socket.emit('useAbility', { roomId, abilityType })
+
   return {
     socket,
     createRoom,
@@ -217,5 +303,6 @@ export const useSocket = () => {
     emitStartGame,
     emitTaskComplete,
     emitRecordAttempt,
+    useAbility,
   }
 }

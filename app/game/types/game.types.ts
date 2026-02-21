@@ -54,7 +54,9 @@ export interface MeetingPlayer {
 export enum GameEvents {
   PLAYER_MOVE = "player:move",
   TASK_INTERACT = "task:interact",
+  OPEN_PUZZLE = "puzzle:open",
   TASK_COMPLETE = "task:complete",
+  TASK_MODAL_CLOSE = "task:modal:close",
   CALL_MEETING = "meeting:call",
   CAST_VOTE = "meeting:vote",
   REPORT_BODY = "report:body",

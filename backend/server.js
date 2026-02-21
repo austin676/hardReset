@@ -21,6 +21,7 @@ const { Server } = require('socket.io');
 const { registerRoomHandlers }     = require('./roomHandlers');
 const { registerRoleHandlers }     = require('./roleHandlers');
 const { registerMovementHandlers } = require('./movementHandlers');
+const { registerAbilityHandlers }  = require('./abilityHandlers');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -76,6 +77,9 @@ io.on('connection', (socket) => {
 
   // Register real-time movement synchronisation listeners (Module 3).
   registerMovementHandlers(socket, io);
+
+  // Register imposter ability handlers.
+  registerAbilityHandlers(socket, io);
 
   // Log clean disconnections for visibility (the handler in roomHandlers.js
   // takes care of state cleanup; this is purely for server-level logging).
