@@ -37,6 +37,15 @@ interface GameStore {
   votes: Record<string, string> // voterId -> targetId
   chatMessages: ChatMessage[]
 
+  // Tasks
+  myTaskIds: string[]
+  completedTaskIds: string[]
+  taskAttempts: Record<string, number>   // taskId → attempt count
+  taskModalOpen: boolean
+  activeTaskId: string | null
+  totalRoomTasks: number
+  roomCompletedTasks: number
+
   // End game
   winner: 'coders' | 'imposter' | null
   ejectedPlayer: Player | null
@@ -61,6 +70,11 @@ interface GameStore {
   setWinner: (winner: 'coders' | 'imposter') => void
   setStats: (stats: Record<string, any>) => void
   setAIReports: (reports: Record<string, string>) => void
+  setMyTaskIds: (ids: string[]) => void
+  markTaskDone: (id: string) => void
+  incrementAttempt: (taskId: string) => void
+  setTaskModal: (open: boolean, taskId?: string | null) => void
+  setRoomTaskProgress: (completed: number, total: number) => void
   reset: () => void
 }
 
@@ -76,6 +90,13 @@ const initialState = {
   activityLog: [],
   votes: {},
   chatMessages: [],
+  myTaskIds: [],
+  completedTaskIds: [],
+  taskAttempts: {},
+  taskModalOpen: false,
+  activeTaskId: null,
+  totalRoomTasks: 0,
+  roomCompletedTasks: 0,
   winner: null,
   ejectedPlayer: null,
   wasImposter: null,
@@ -114,6 +135,16 @@ export const useGameStore = create<GameStore>((set) => ({
 
   setWinner: (winner) => set({ winner }),
   setStats: (stats) => set({ stats }),
-  setAIReports: (reports) => set({ aiReports: reports }),
+  setAIReports: (reports) => set((state) => ({ aiReports: { ...state.aiReports, ...reports } })),
+  setMyTaskIds: (ids) => set({ myTaskIds: ids }),
+  markTaskDone: (id) =>
+    set((state) => ({ completedTaskIds: [...new Set([...state.completedTaskIds, id])] })),
+  incrementAttempt: (taskId) =>
+    set((state) => ({
+      taskAttempts: { ...state.taskAttempts, [taskId]: (state.taskAttempts[taskId] ?? 0) + 1 },
+    })),
+  setTaskModal: (open, taskId = null) => set({ taskModalOpen: open, activeTaskId: taskId }),
+  setRoomTaskProgress: (completed, total) =>
+    set({ roomCompletedTasks: completed, totalRoomTasks: total }),
   reset: () => set(initialState),
 }))

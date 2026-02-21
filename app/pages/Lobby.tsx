@@ -1,11 +1,24 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router'
 import { useGameStore } from '../store/gameStore'
 import { useSocket } from '../hooks/useSocket'
 import Crewmate from '../components/Crewmate'
 
 export default function Lobby() {
-  const { roomCode, players } = useGameStore()
-  useSocket()
+  const { roomCode, players, myPlayerId } = useGameStore()
+  const { emitStartGame } = useSocket()
+  const navigate = useNavigate()
+
+  const isHost = players.length > 0 && players[0]?.id === myPlayerId
+  const canStart = players.length >= 2
+
+  // Navigate to playing screen when game starts
+  useEffect(() => {
+    const onGameStarted = () => navigate('/playing')
+    window.addEventListener('socket:gameStarted', onGameStarted)
+    return () => window.removeEventListener('socket:gameStarted', onGameStarted)
+  }, [navigate])
 
   return (
     <div className="min-h-screen bg-[#10122a] flex items-center justify-center px-4">
@@ -64,6 +77,25 @@ export default function Lobby() {
         >
           Waiting for all players...
         </motion.p>
+
+        {/* Start Game — host only */}
+        {isHost && (
+          <motion.button
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.95 }}
+            disabled={!canStart}
+            onClick={() => roomCode && emitStartGame(roomCode)}
+            className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest
+                       border-4 transition-all ${
+              canStart
+                ? 'bg-[#1d8c3a] border-[#0d5020] text-white shadow-[0_4px_0_#0d5020] hover:bg-[#22a844] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-[2px]'
+                : 'bg-[#1a1c3a] border-[#2e3060] text-[#40405a] cursor-not-allowed'
+            }`}
+          >
+            {canStart ? '🚀 Start Game' : `Need ${2 - players.length} more player${2 - players.length === 1 ? '' : 's'}`}
+          </motion.button>
+        )}
       </div>
     </div>
   )
