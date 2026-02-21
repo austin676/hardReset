@@ -25,6 +25,8 @@ const {
   updatePlayerPosition,
 } = require('./state');
 
+const { isPlayerTimedOut } = require('./timerUtils');
+
 // ---------------------------------------------------------------------------
 // Tuning constants
 // ---------------------------------------------------------------------------

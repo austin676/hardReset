@@ -459,6 +459,7 @@ export default function GameHUD() {
           backdropFilter: "blur(6px)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontFamily: "'Inter', 'Segoe UI', sans-serif",
+          pointerEvents: "auto",
         }}>
 
           {/* ── HUD Corner brackets ── */}
@@ -1067,6 +1068,7 @@ export default function GameHUD() {
           backdropFilter: "blur(10px)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontFamily: "'Inter', 'Segoe UI', sans-serif",
+          pointerEvents: "auto",
         }}>
           <div style={{
             width: 480, background: "#080d14",

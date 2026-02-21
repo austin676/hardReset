@@ -38,8 +38,12 @@ create table if not exists players (
   tasks_completed  integer     not null default 0,
   sabotage_points  integer     not null default 0,
   vote             text,                        -- socketId voted for, or 'skip'
+  timeout_until    timestamptz          default null, -- null = free to move; set = movement blocked until this UTC timestamp
   joined_at        timestamptz not null default now()
 );
+
+-- Add timeout_until to existing installations (safe to run on a live DB)
+alter table players add column if not exists timeout_until timestamptz default null;
 
 -- Index for fast player lookups by room
 create index if not exists idx_players_room_id on players(room_id);

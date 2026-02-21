@@ -148,18 +148,20 @@ export const useSocket = () => {
     })
 
     // ── Task events (puzzle engine integration) ──────────────────
-    socket.on('gameStarted', ({ role, myTasks, totalRoomTasks, roomCompletedTasks, roundNumber, players: allPlayers }: any) => {
-      setMyRole(role)
+    socket.on('gameStarted', ({ round, players: allPlayers }: any) => {
+      // role  → delivered privately via roleAssigned
+      // tasks → delivered privately via tasksAssigned
+      if (round) setRoundNumber(round)
+      if (Array.isArray(allPlayers)) setPlayers(allPlayers.map(normalizePlayer))
+    })
+
+    socket.on('tasksAssigned', ({ myTasks, totalRoomTasks, roomCompletedTasks, roundNumber, players: allPlayers }: any) => {
       setMyTasks(myTasks)
       setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
       setRoundNumber(roundNumber)
       setGamePhase('playing')
-      // Update store players list so PhaserGame can read it after scene:ready
-      if (Array.isArray(allPlayers)) {
-        setPlayers(allPlayers.map(normalizePlayer))
-      }
+      if (Array.isArray(allPlayers)) setPlayers(allPlayers.map(normalizePlayer))
       window.dispatchEvent(new CustomEvent('socket:gameStarted'))
-      // NOTE: remote player spawning happens in PhaserGame once scene:ready fires
     })
 
     // ── Real-time movement: forward other players into Phaser ────────────────
@@ -249,6 +251,7 @@ export const useSocket = () => {
       socket.off('aiReport')
       socket.off('chatMessage')
       socket.off('gameStarted')
+      socket.off('tasksAssigned')
       socket.off('taskCompleted')
       socket.off('activityUpdate')
       socket.off('playerMoved')
