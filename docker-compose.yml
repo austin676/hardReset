@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  # ── React/Remix frontend ──────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+      - puzzle-engine
+
+  # ── Socket.io game backend ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=3001
+      - CORS_ORIGIN=http://localhost:3000
+
+  # ── Puzzle / task-engine microservice ────────────────────────────────────
+  puzzle-engine:
+    build:
+      context: ./devhacks-puzzle
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000

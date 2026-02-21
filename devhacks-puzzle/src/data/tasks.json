@@ -1,0 +1,50 @@
+[
+    {
+        "id": "python_oops_1",
+        "domain": "oops",
+        "language": "python",
+        "prompt": "Complete the `Dog` class so that calling `speak()` returns \"Woof! My name is <name>\".",
+        "starterCode": "class Dog:\n    def __init__(self, name):\n        # TODO: store the name\n        pass\n\n    def speak(self):\n        # TODO: return \"Woof! My name is <name>\"\n        pass\n\ndog = Dog(\"Buddy\")\nprint(dog.speak())",
+        "expectedOutput": "Woof! My name is Buddy"
+    },
+    {
+        "id": "python_oops_2",
+        "domain": "oops",
+        "language": "python",
+        "prompt": "Complete the `Counter` class so it tracks a count. `increment()` adds 1 and `get_count()` returns the current count.",
+        "starterCode": "class Counter:\n    def __init__(self):\n        # TODO: initialise count to 0\n        pass\n\n    def increment(self):\n        # TODO: add 1 to count\n        pass\n\n    def get_count(self):\n        # TODO: return current count\n        pass\n\nc = Counter()\nc.increment()\nc.increment()\nc.increment()\nprint(c.get_count())",
+        "expectedOutput": "3"
+    },
+    {
+        "id": "python_dsa_1",
+        "domain": "dsa",
+        "language": "python",
+        "prompt": "Complete the function `reverse_string(s)` that returns the reversed version of the input string.",
+        "starterCode": "def reverse_string(s):\n    # TODO: return the reversed string\n    pass\n\nprint(reverse_string(\"hello\"))",
+        "expectedOutput": "olleh"
+    },
+    {
+        "id": "python_dsa_2",
+        "domain": "dsa",
+        "language": "python",
+        "prompt": "Complete the function `find_max(arr)` that returns the largest number in the list without using the built-in `max()` function.",
+        "starterCode": "def find_max(arr):\n    # TODO: find and return the largest number\n    pass\n\nprint(find_max([3, 7, 2, 9, 4]))",
+        "expectedOutput": "9"
+    },
+    {
+        "id": "js_basic_1",
+        "domain": "frontend",
+        "language": "javascript",
+        "prompt": "Complete the function `capitalize(str)` that returns the string with the first letter capitalised.",
+        "starterCode": "function capitalize(str) {\n  // TODO: return the string with first letter capitalised\n}\n\nconsole.log(capitalize(\"hello\"));",
+        "expectedOutput": "Hello"
+    },
+    {
+        "id": "js_basic_2",
+        "domain": "frontend",
+        "language": "javascript",
+        "prompt": "Complete the function `sumArray(arr)` that returns the sum of all numbers in the array.",
+        "starterCode": "function sumArray(arr) {\n  // TODO: return the sum of all numbers\n}\n\nconsole.log(sumArray([1, 2, 3, 4, 5]));",
+        "expectedOutput": "15"
+    }
+]

@@ -46,6 +46,11 @@ export const useSocket = () => {
     setWinner,
     setStats,
     setAIReports,
+    setMyRole,
+    setMyTaskIds,
+    markTaskDone,
+    setTaskModal,
+    setRoomTaskProgress,
     players,
   } = useGameStore()
 
@@ -115,6 +120,27 @@ export const useSocket = () => {
       setGamePhase('playing')
     })
 
+    // ── Task events (puzzle engine integration) ──────────────────
+    socket.on('gameStarted', ({ role, myTaskIds, totalRoomTasks, roomCompletedTasks, roundNumber }: any) => {
+      setMyRole(role)
+      setMyTaskIds(myTaskIds)
+      setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
+      setRoundNumber(roundNumber)
+      setGamePhase('playing')
+      window.dispatchEvent(new CustomEvent('socket:gameStarted'))
+    })
+
+    socket.on('taskCompleted', ({ playerId, taskId, roomCompletedTasks, totalRoomTasks }: any) => {
+      // If this is our task, mark it locally too
+      if (playerId === socket.id) markTaskDone(taskId)
+      setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
+    })
+
+    socket.on('activityUpdate', ({ message }: { message: string }) => {
+      const { activityLog } = useGameStore.getState()
+      setActivityLog([message, ...activityLog].slice(0, 20))
+    })
+
     socket.on('roundEnd', ({ roundNumber }: any) => {
       setRoundNumber(roundNumber)
     })
@@ -146,6 +172,9 @@ export const useSocket = () => {
       socket.off('timerUpdate')
       socket.off('aiReport')
       socket.off('chatMessage')
+      socket.off('gameStarted')
+      socket.off('taskCompleted')
+      socket.off('activityUpdate')
     }
   }, [players])
 
@@ -168,6 +197,15 @@ export const useSocket = () => {
   const sendControllerInput = (direction: string, action?: string) =>
     socket.emit('controllerInput', { direction, action })
 
+  const emitStartGame = (roomId: string) =>
+    socket.emit('startGame', { roomId })
+
+  const emitTaskComplete = (roomId: string, taskId: string) =>
+    socket.emit('taskComplete', { roomId, taskId })
+
+  const emitRecordAttempt = (roomId: string, taskId: string, passed: boolean, userCode: string) =>
+    socket.emit('recordAttempt', { roomId, taskId, passed, userCode })
+
   return {
     socket,
     createRoom,
@@ -176,5 +214,8 @@ export const useSocket = () => {
     castVote,
     sendChatMessage,
     sendControllerInput,
+    emitStartGame,
+    emitTaskComplete,
+    emitRecordAttempt,
   }
 }
