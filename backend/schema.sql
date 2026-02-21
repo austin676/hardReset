@@ -9,13 +9,17 @@
 -- Holds one row per active (or recently finished) game room.
 -- ---------------------------------------------------------------------------
 create table if not exists rooms (
-  room_id          text        primary key,
-  meeting_active   boolean     not null default false,
-  timer            integer     not null default 180,
-  sabotage_stations jsonb      not null default '{}',
-  round            integer     not null default 1,
-  created_at       timestamptz not null default now()
+  room_id           text        primary key,
+  meeting_active    boolean     not null default false,
+  game_active       boolean     not null default false,  -- true once startGame fires
+  timer             integer     not null default 180,
+  sabotage_stations jsonb       not null default '{}',
+  round             integer     not null default 1,
+  created_at        timestamptz not null default now()
 );
+
+-- Add game_active to existing installations (safe to run on a live DB)
+alter table rooms add column if not exists game_active boolean not null default false;
 
 -- ---------------------------------------------------------------------------
 -- players

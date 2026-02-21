@@ -163,6 +163,8 @@ async function handleDisconnect(socket, io) {
         await deleteRoom(roomId);
         console.log(`[roomHandlers] Room ${roomId} deleted — no players remaining`);
       } else {
+        // Tell remaining players this socket left (movement updates should stop)
+        io.to(roomId).emit('playerLeft', { socketId: socket.id, roomId });
         await broadcastPlayerList(io, roomId);
       }
     } catch (err) {
