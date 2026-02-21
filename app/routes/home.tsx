@@ -1,15 +1,4 @@
-import type { Route } from "./+types/home";
-import { Welcome } from "../welcome/welcome";
-import { supabase } from '../lib/supabase'
-
-const { data, error } = await supabase.from('your_table').select('*')
-export function meta({}: Route.MetaArgs) {
-  return [
-    { title: "New React Router App" },
-    { name: "description", content: "Welcome to React Router!" },
-  ];
-}
-
-export default function Home() {
-  return <Welcome />;
+// This route is no longer used — see app/pages/Home.tsx
+export default function LegacyHome() {
+  return null
 }
