@@ -1,6 +1,8 @@
 import type { Route } from "./+types/home";
 import { Welcome } from "../welcome/welcome";
+import { supabase } from '../lib/supabase'
 
+const { data, error } = await supabase.from('your_table').select('*')
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "New React Router App" },
