@@ -1,7 +1,11 @@
 .DS_Store
 .env
 /node_modules/
+node_modules/
 
 # React Router
 /.react-router/
 /build/
+
+# Puzzle module build artifacts
+puzzle/dist/
