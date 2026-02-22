@@ -3,6 +3,7 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-pixel: "Press Start 2P", monospace;
 }
 
 html,
@@ -11,9 +12,124 @@ body {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  @apply bg-white dark:bg-gray-950;
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+  background: #0b0b1a;
+  color-scheme: dark;
 }
+
+/* ── Pixel-art retro theme utilities ────────────────── */
+.font-pixel {
+  font-family: "Press Start 2P", monospace;
+}
+
+/* Pixel-perfect border style (no border-radius, sharp retro edges) */
+.pixel-border {
+  border: 3px solid #2a2a4a;
+  box-shadow: 0 0 0 1px #0b0b1a, inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+.pixel-border-glow {
+  border: 3px solid #7c5cfc;
+  box-shadow: 0 0 12px rgba(124,92,252,0.25), inset 0 0 0 1px rgba(124,92,252,0.1);
+}
+
+/* Neon text glow */
+.text-glow-cyan {
+  text-shadow: 0 0 8px rgba(0,255,200,0.5), 0 0 20px rgba(0,255,200,0.2);
+}
+.text-glow-purple {
+  text-shadow: 0 0 8px rgba(124,92,252,0.6), 0 0 20px rgba(124,92,252,0.3);
+}
+.text-glow-green {
+  text-shadow: 0 0 8px rgba(34,168,68,0.6), 0 0 20px rgba(34,168,68,0.3);
+}
+
+/* Custom scrollbar for the retro theme */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0b0b1a; }
+::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: #7c5cfc; }
+
+/* Retro checkbox for topic picker */
+.retro-check {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #2a2a4a;
+  background: #0b0b1a;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+}
+.retro-check:checked {
+  background: #22a844;
+  border-color: #22a844;
+}
+.retro-check:checked::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: white;
+}
+
+/* ── Scanline overlay ──────────────────────────────────── */
+.scanlines {
+  position: relative;
+}
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.055) 2px,
+    rgba(0, 0, 0, 0.055) 4px
+  );
+  pointer-events: none;
+  z-index: 99;
+}
+
+/* ── Neon flicker keyframe ─────────────────────────────── */
+@keyframes neon-flicker {
+  0%, 95%, 100% { opacity: 1; }
+  96%           { opacity: 0.6; }
+  97%           { opacity: 1; }
+  98%           { opacity: 0.5; }
+  99%           { opacity: 1; }
+}
+.neon-flicker {
+  animation: neon-flicker 5s infinite;
+}
+
+/* ── Scanline sweep (horizontal bar moving down) ───────── */
+@keyframes scan-sweep {
+  0%   { transform: translateY(0);     opacity: 0.6; }
+  80%  { opacity: 0.15; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+.scan-sweep {
+  position: absolute;
+  top: 0;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 5%, #7cffcbaa 40%, #7cffcbdd 50%, #7cffcbaa 60%, transparent 95%);
+  box-shadow: 0 0 6px 1px #7cffcb55;
+  animation: scan-sweep 6s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Button press depth ────────────────────────────────── */
+.pixel-btn-press:active {
+  transform: translateY(2px);
+}
+
+/* ── Grid line background ──────────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(124, 92, 252, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 92, 252, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
