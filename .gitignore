@@ -9,3 +9,6 @@
 
 /backend/node_modules/
 /backend/.env
+
+app/pages/Home.tsx
+app/pages/Lobby.tsx

@@ -1,11 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router'
 import { useGameStore } from '../store/gameStore'
 import { useSocket } from '../hooks/useSocket'
 import Crewmate from '../components/Crewmate'
-import SplineModel from '../components/SplineModel'
-import { fadeDown, fadeUp, scaleIn, stagger, startNeonPulse } from '../lib/anim'
 
 export default function Lobby() {
   const { roomCode, players, myPlayerId } = useGameStore()
@@ -16,6 +14,14 @@ export default function Lobby() {
   const isHost = players.length > 0 && players[0]?.id === myPlayerId
   const canStart = players.length >= 2
 
+  const handleCopy = () => {
+    if (!roomCode) return
+    navigator.clipboard.writeText(roomCode).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   // Navigate to game screen when game starts
   useEffect(() => {
     const onGameStarted = () => navigate('/game')
@@ -24,30 +30,27 @@ export default function Lobby() {
   }, [navigate])
 
   return (
-    <div className="min-h-screen bg-[#0b0b1a] scanlines relative flex items-center justify-center overflow-hidden">
-
-      {/* ── 3D background ── */}
-      <div className="absolute inset-0" style={{ mixBlendMode: 'screen', zIndex: 0 }}>
-        <SplineModel className="w-full h-full" />
-      </div>
-      <div className="absolute inset-0 pointer-events-none"
-        style={{ background: 'radial-gradient(ellipse 60% 100% at 28% 50%, #0b0b1aee 0%, #0b0b1acc 50%, transparent 100%)', zIndex: 1 }} />
-      <div className="scan-sweep" style={{ zIndex: 2 }} />
-
-      {/* ── Content ── */}
-      <div className="relative z-10 w-full max-w-md px-6 py-6 space-y-4 overflow-y-auto max-h-screen">
-
-        {/* ╔═ LOBBY HEADER ═╗ */}
-        <motion.div variants={fadeDown} initial="hidden" animate="show"
-          className="bg-[#0b0b20ee] bg-grid p-4 flex items-center justify-between"
-          style={{ border: '2px solid #3a2a6a', boxShadow: '0 0 10px #7c5cfc22' }}>
-          <div className="flex items-center gap-2">
-            <span className="font-pixel text-[15px] text-[#8888cc] uppercase">Lobby ·</span>
-            <motion.span
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2.5, repeat: Infinity }}
-              className="font-pixel text-[17px] text-[#e8c030] neon-flicker">{roomCode}</motion.span>
+    <div className="min-h-screen bg-[#10122a] flex items-center justify-center px-4">
+      <div className="max-w-md w-full text-center space-y-6">
+        {/* Room code */}
+        <div>
+          <p className="text-[#9090b0] text-xs font-black tracking-widest uppercase mb-2">Share This Code</p>
+          <div className="bg-[#1a1c3a] border-4 border-[#e8c030] rounded-2xl px-8 py-5 inline-block
+                          shadow-[0_0_30px_#e8c03033]">
+            <span className="text-[#e8c030] text-5xl font-black tracking-[0.5em]">
+              {roomCode}
+            </span>
           </div>
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={handleCopy}
+            className="mt-3 mx-auto flex items-center gap-2 px-5 py-2 rounded-xl
+                       bg-[#1a1c3a] border-2 border-[#2e3060] text-[#9090b0] text-xs font-black
+                       tracking-widest uppercase hover:border-[#e8c030] hover:text-[#e8c030]
+                       transition-all cursor-pointer"
+          >
+            {copied ? '✓ Copied!' : '📋 Copy Code'}
+          </motion.button>
         </div>
 
         {/* Player slots */}
@@ -76,28 +79,22 @@ export default function Lobby() {
                     <p className="text-white font-black text-sm truncate">
                       {player ? player.name : 'Waiting...'}
                     </p>
-                  </>
-                ) : (
-                  <>
-                    <motion.div
-                      animate={{ opacity: [0.3, 0.6, 0.3] }}
-                      transition={{ duration: 2.2, repeat: Infinity, delay: i * 0.5 }}
-                      className="w-11 h-11 border-2 border-dashed border-[#2a2a4a]" />
-                    <p className="font-pixel text-[12px] text-[#333355]">waiting...</p>
-                  </>
-                )}
-              </motion.div>
-            )
-          })}
-        </motion.div>
+                    {player && (
+                      <p className="text-[#1d8c3a] text-xs font-bold uppercase tracking-wide">Ready</p>
+                    )}
+                  </div>
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
 
-        {/* ╔═ WAITING PULSE ═╗ */}
         <motion.p
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 2.5, repeat: Infinity }}
-          className="font-pixel text-[12px] text-[#555577] text-center tracking-wider"
+          animate={{ opacity: [0.4, 1, 0.4] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="text-[#9090b0] text-xs font-bold tracking-widest uppercase"
         >
-          waiting for players… {players.length}/4
+          Waiting for all players...
         </motion.p>
 
         {/* Start Game — host only */}
@@ -111,7 +108,7 @@ export default function Lobby() {
             className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest
                        border-4 transition-all ${
               canStart
-                ? 'bg-[#1d8c3a] border-[#0d5020] text-white shadow-[0_4px_0_#0d5020] hover:bg-[#22a844] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-[2px]'
+                ? 'bg-[#1d8c3a] border-[#0d5020] text-white shadow-[0_4px_0_#0d5020] hover:bg-[#22a844] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-0.5'
                 : 'bg-[#1a1c3a] border-[#2e3060] text-[#40405a] cursor-not-allowed'
             }`}
           >
