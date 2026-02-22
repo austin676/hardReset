@@ -8,6 +8,7 @@ export interface Player {
   color: string
   isAlive: boolean
   tasksCompleted: number
+  topics?: string[]
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'discussion' | 'voting' | 'ejection' | 'duel' | 'results'
