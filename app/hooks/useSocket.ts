@@ -18,6 +18,8 @@ const getSocket = (): Socket => {
   return socketInstance
 }
 
+export { getSocket }
+
 // Backend sends { socketId, alive, avatar, ... } — normalise to store shape
 const normalizePlayer = (p: any): Player => ({
   id:              p.socketId,
@@ -42,15 +44,20 @@ export const useSocket = () => {
     setActivityLog,
     addVote,
     clearVotes,
+    setVoteTally,
     setEjectedPlayer,
     setWinner,
     setStats,
     setAIReports,
     setMyRole,
-    setMyTaskIds,
+    setMyTasks,
     markTaskDone,
     setTaskModal,
     setRoomTaskProgress,
+    setScores,
+    addScore,
+    setRoundLeaderboard,
+    setAbilityPoints,
     players,
   } = useGameStore()
 
@@ -86,54 +93,138 @@ export const useSocket = () => {
     })
 
     // ── Game events (Member 2 backend) ───────────────────────────
-    socket.on('meetingCalled', ({ calledBy, activityLog, players: rawPlayers }: any) => {
-      setActivityLog(activityLog)
+    socket.on('meetingStarted', ({ players: rawPlayers }: any) => {
       if (rawPlayers) setPlayers(rawPlayers.map(normalizePlayer))
       setGamePhase('discussion')
     })
 
-    socket.on('voteResult', ({ ejectedPlayer, wasImposter, votes }: any) => {
-      clearVotes()
-      Object.entries(votes || {}).forEach(([voterId, targetId]) =>
-        addVote(voterId, targetId as string)
-      )
-      const playerObj = players.find((p) => p.id === ejectedPlayer)
-      if (playerObj) setEjectedPlayer(playerObj, wasImposter)
-      setGamePhase('ejection')
+    // ── Vote tally update (targets stay masked until meetingEnded) ──────────
+    socket.on('voteUpdate', ({ tally }: any) => {
+      if (!tally) return
+      const boolTally: Record<string, boolean> = {}
+      Object.entries(tally).forEach(([id, val]) => { boolTally[id] = val === '✓' })
+      setVoteTally(boolTally)
     })
 
-    socket.on('gameEnd', ({ winner, stats }: any) => {
+    socket.on('meetingEnded', ({ ejected, players: rawPlayers }: any) => {
+      clearVotes()
+      if (rawPlayers) setPlayers(rawPlayers.map(normalizePlayer))
+      // If nobody was ejected, go straight back to playing.
+      // If ejected is set, playerEjected already set phase to 'ejection'.
+      if (!ejected) setGamePhase('playing')
+    })
+
+    socket.on('gameEnd', ({ winner, stats, leaderboard }: any) => {
       setWinner(winner)
       setStats(stats)
+      if (leaderboard) setRoundLeaderboard(0, leaderboard)
       setGamePhase('results')
     })
 
-    socket.on('playerEjected', ({ playerId }: any) => {
+    socket.on('playerEjected', ({ socketId, role }: any) => {
       const updated = players.map((p) =>
-        p.id === playerId ? { ...p, isAlive: false } : p
+        p.id === socketId ? { ...p, isAlive: false } : p
       )
       setPlayers(updated)
+      const playerObj = players.find((p) => p.id === socketId)
+      if (playerObj) setEjectedPlayer(playerObj, role === 'impostor')
+      setGamePhase('ejection')
     })
 
-    socket.on('roundStart', ({ roundNumber }: any) => {
-      setRoundNumber(roundNumber)
+    socket.on('roundStart', ({ round, myTasks, scores: allScores }: any) => {
+      setRoundNumber(round)
+      if (myTasks) setMyTasks(myTasks)
+      if (allScores) setScores(allScores)
       setGamePhase('playing')
     })
 
+    // ── Private role assignment (impostor or crewmate) ───────────────────────
+    socket.on('roleAssigned', ({ role }: any) => {
+      if (role) setMyRole(role === 'impostor' ? 'imposter' : 'coder')
+    })
+
+    // ── Imposter ability received — forward into Phaser event bus ────────────
+    socket.on('abilityReceived', ({ fromId, fromName, abilityType }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('ability:received', { fromId, fromName, abilityType })
+      })
+    })
+
+    // ── Ability used confirmation ──────────────────────────────────────────────
+    socket.on('abilityUsed', ({ abilityType, targetName }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('ability:used', { abilityType, targetName })
+      })
+    })
+
+    // ── Impostor sabotage points update (fake task completion) ────────────────
+    socket.on('sabotagePointsUpdated', ({ sabotagePoints }: any) => {
+      if (typeof sabotagePoints === 'number') setAbilityPoints(sabotagePoints)
+    })
+
     // ── Task events (puzzle engine integration) ──────────────────
-    socket.on('gameStarted', ({ role, myTaskIds, totalRoomTasks, roomCompletedTasks, roundNumber }: any) => {
-      setMyRole(role)
-      setMyTaskIds(myTaskIds)
-      setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
-      setRoundNumber(roundNumber)
+    socket.on('gameStarted', ({ round, players: allPlayers }: any) => {
+      if (round) setRoundNumber(round)
+      if (Array.isArray(allPlayers)) setPlayers(allPlayers.map(normalizePlayer))
       setGamePhase('playing')
       window.dispatchEvent(new CustomEvent('socket:gameStarted'))
     })
 
-    socket.on('taskCompleted', ({ playerId, taskId, roomCompletedTasks, totalRoomTasks }: any) => {
-      // If this is our task, mark it locally too
-      if (playerId === socket.id) markTaskDone(taskId)
+    socket.on('tasksAssigned', ({ myTasks, totalRoomTasks, roomCompletedTasks, roundNumber, players: allPlayers }: any) => {
+      setMyTasks(myTasks)
       setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
+      setRoundNumber(roundNumber)
+      setGamePhase('playing')
+      if (Array.isArray(allPlayers)) setPlayers(allPlayers.map(normalizePlayer))
+      window.dispatchEvent(new CustomEvent('socket:gameStarted'))
+    })
+
+    // ── Real-time movement: forward other players into Phaser ────────────────
+    socket.on('playerMoved', ({ socketId, position, direction, mapId }: any) => {
+      if (socketId === socket.id) return  // ignore echo (shouldn't happen)
+      // Look up this player in the store to get name + color
+      const { players: storePlayers } = useGameStore.getState()
+      const found = storePlayers.find((p) => p.id === socketId)
+      const colorNum = found?.color
+        ? (typeof found.color === 'string'
+            ? parseInt((found.color as string).replace('#', ''), 16)
+            : (found.color as unknown as number))
+        : 0xef4444
+
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('remote:player:move', {
+          id:        socketId,
+          x:         position.x,
+          y:         position.y,
+          direction: direction ?? 'down',
+          mapId:     mapId ?? 'cafeteria',
+          isMoving:  true,
+          role:      'agent',
+          name:      found?.name ?? '???',
+          color:     colorNum,
+          alive:     found?.isAlive ?? true,
+        })
+      })
+    })
+
+    // ── Player left: remove from Phaser world ────────────────────────────────
+    socket.on('playerLeft', ({ socketId }: any) => {
+      import('~/game/GameEventBus').then(({ gameEventBus }) => {
+        gameEventBus.emit('player:leave', { id: socketId })
+      })
+    })
+
+    // ── taskProgressUpdated: a crewmate completed a task station ──────────────
+    socket.on('taskProgressUpdated', ({ completedBy, taskProgress }: any) => {
+      // Award 100 pts to the completing player in the live leaderboard
+      if (completedBy) {
+        const currentScores = useGameStore.getState().scores
+        setScores({ ...currentScores, [completedBy]: (currentScores[completedBy] ?? 0) + 100 })
+      }
+      if (typeof taskProgress === 'number') {
+        const { totalRoomTasks } = useGameStore.getState()
+        setRoomTaskProgress(taskProgress, totalRoomTasks > 0 ? totalRoomTasks : taskProgress)
+      }
     })
 
     socket.on('activityUpdate', ({ message }: { message: string }) => {
@@ -141,12 +232,32 @@ export const useSocket = () => {
       setActivityLog([message, ...activityLog].slice(0, 20))
     })
 
-    socket.on('roundEnd', ({ roundNumber }: any) => {
-      setRoundNumber(roundNumber)
+    socket.on('roundEnd', ({ round, leaderboard }: any) => {
+      setRoundNumber(round)
+      if (leaderboard) {
+        setRoundLeaderboard(round, leaderboard)
+        import('~/game/GameEventBus').then(({ gameEventBus }) => {
+          gameEventBus.emit('round:end', { round, leaderboard })
+        })
+      }
     })
 
-    socket.on('timerUpdate', ({ timeLeft }: any) => {
-      setTimeLeft(timeLeft)
+    socket.on('scoreUpdate', ({ scores: allScores }: any) => {
+      if (allScores) setScores(allScores)
+    })
+
+    // ── Task replaced (expired timer) — swap old task for new one ────────────
+    socket.on('taskReplaced', ({ oldTaskId, newTask }: any) => {
+      if (!newTask) return
+      const { myTasks: current } = useGameStore.getState()
+      const updated = current.map(t => t.id === oldTaskId ? newTask : t)
+      // If the old task wasn't found, just append
+      if (!current.some(t => t.id === oldTaskId)) updated.push(newTask)
+      setMyTasks(updated)
+    })
+
+    socket.on('timerUpdate', ({ timer }: any) => {
+      setTimeLeft(timer)
     })
 
     // ── Events from Member 3 (task system) ──────────────────────
@@ -163,8 +274,9 @@ export const useSocket = () => {
       socket.off('roomJoined')
       socket.off('playerListUpdated')
       socket.off('error')
-      socket.off('meetingCalled')
-      socket.off('voteResult')
+      socket.off('meetingStarted')
+      socket.off('voteUpdate')
+      socket.off('meetingEnded')
       socket.off('gameEnd')
       socket.off('playerEjected')
       socket.off('roundStart')
@@ -173,23 +285,37 @@ export const useSocket = () => {
       socket.off('aiReport')
       socket.off('chatMessage')
       socket.off('gameStarted')
-      socket.off('taskCompleted')
+      socket.off('tasksAssigned')
+      socket.off('taskProgressUpdated')
       socket.off('activityUpdate')
+      socket.off('playerMoved')
+      socket.off('playerLeft')
+      socket.off('roleAssigned')
+      socket.off('abilityReceived')
+      socket.off('abilityUsed')
+      socket.off('sabotagePointsUpdated')
+      socket.off('taskReplaced')
+    socket.off('scoreUpdate')
     }
+
   }, [players])
 
   // ── Emit helpers ─────────────────────────────────────────────
-  const createRoom = (name: string, color: string) =>
-    socket.emit('createRoom', { name, avatar: color })
+  const createRoom = (name: string, color: string, topics: string[] = []) =>
+    socket.emit('createRoom', { name, avatar: color, topics })
 
-  const joinRoom = (roomId: string, name: string, color: string) =>
-    socket.emit('joinRoom', { roomId, name, avatar: color })
+  const joinRoom = (roomId: string, name: string, color: string, topics: string[] = []) =>
+    socket.emit('joinRoom', { roomId, name, avatar: color, topics })
 
-  const callMeeting = (calledBy: string) =>
-    socket.emit('callMeeting', { calledBy })
+  const callMeeting = (_calledBy?: string) => {
+    const roomCode = useGameStore.getState().roomCode
+    socket.emit('meetingCalled', { roomId: roomCode })
+  }
 
-  const castVote = (voterId: string, targetId: string) =>
-    socket.emit('castVote', { voterId, targetId })
+  const castVote = (_voterId: string, targetId: string) => {
+    const roomCode = useGameStore.getState().roomCode
+    socket.emit('vote', { roomId: roomCode, targetId })
+  }
 
   const sendChatMessage = (playerId: string, message: string) =>
     socket.emit('chatMessage', { playerId, message })
@@ -206,6 +332,9 @@ export const useSocket = () => {
   const emitRecordAttempt = (roomId: string, taskId: string, passed: boolean, userCode: string) =>
     socket.emit('recordAttempt', { roomId, taskId, passed, userCode })
 
+  const useAbility = (roomId: string, abilityType: string) =>
+    socket.emit('useAbility', { roomId, abilityType })
+
   return {
     socket,
     createRoom,
@@ -217,5 +346,6 @@ export const useSocket = () => {
     emitStartGame,
     emitTaskComplete,
     emitRecordAttempt,
+    useAbility,
   }
 }

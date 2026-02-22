@@ -200,6 +200,7 @@ async function getPlayers(roomId) {
     tasksCompleted:  p.tasks_completed,
     sabotagePoints:  p.sabotage_points,
     vote:            p.vote,
+    timeoutUntil:    p.timeout_until ?? null,
   }));
 }
 
@@ -296,6 +297,7 @@ async function resetPlayersForGame(roomId) {
       sabotage_points: 0,
       vote:            null,
       role:            null,
+      timeout_until:   null,
     })
     .eq('room_id', roomId);
 
@@ -389,7 +391,89 @@ async function getPlayerState(socketId) {
     tasksCompleted: data.tasks_completed,
     sabotagePoints: data.sabotage_points,
     vote:           data.vote,
+    timeoutUntil:   data.timeout_until ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Timer helpers (Module 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * setRoomTimer
+ * Persists the current countdown value for a room.
+ * Called once per second by timerHandlers.
+ *
+ * @param {string} roomId
+ * @param {number} timer  — seconds remaining
+ */
+async function setRoomTimer(roomId, timer) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ timer })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] setRoomTimer failed: ${error.message}`);
+}
+
+/**
+ * incrementRound
+ * Bumps the round counter and resets the timer column to 180 for the next round.
+ *
+ * @param {string} roomId
+ */
+async function incrementRound(roomId) {
+  // Supabase does not support server-side arithmetic in a simple update,
+  // so we read the current value first then write back.
+  const { data, error: readErr } = await supabase
+    .from('rooms')
+    .select('round')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] incrementRound read failed: ${readErr.message}`);
+
+  const nextRound = (data?.round ?? 0) + 1;
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({ round: nextRound, timer: 180 })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] incrementRound write failed: ${error.message}`);
+  console.log(`[state] Room ${roomId} advanced to round ${nextRound}`);
+}
+
+/**
+ * setPlayerTimeout
+ * Records a timeout_until timestamp for a player, blocking movement until that
+ * time passes. Pass an ISO string (use buildTimeoutUntil from timerUtils).
+ *
+ * @param {string} socketId
+ * @param {string} timeoutUntil  — ISO 8601 timestamp
+ */
+async function setPlayerTimeout(socketId, timeoutUntil) {
+  const { error } = await supabase
+    .from('players')
+    .update({ timeout_until: timeoutUntil })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] setPlayerTimeout failed: ${error.message}`);
+}
+
+/**
+ * clearPlayerTimeout
+ * Removes an active timeout from a player (sets timeout_until back to null).
+ *
+ * @param {string} socketId
+ */
+async function clearPlayerTimeout(socketId) {
+  const { error } = await supabase
+    .from('players')
+    .update({ timeout_until: null })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] clearPlayerTimeout failed: ${error.message}`);
 }
 
 /**
@@ -408,6 +492,226 @@ async function isMeetingActive(roomId) {
     .maybeSingle();
 
   return data?.meeting_active === true;
+}
+
+// ---------------------------------------------------------------------------
+// Meeting helpers (Module 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * setMeetingActive
+ * Flips the meeting_active flag on a room row.
+ * Passing true pauses gameplay (movement module already checks this flag).
+ *
+ * @param {string} roomId
+ * @param {boolean} active
+ */
+async function setMeetingActive(roomId, active) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ meeting_active: active })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] setMeetingActive failed: ${error.message}`);
+  console.log(`[state] Room ${roomId} meeting_active → ${active}`);
+}
+
+/**
+ * castVote
+ * Persists a single player’s vote choice.
+ * targetId is either a socketId or the string 'skip'.
+ *
+ * @param {string} socketId
+ * @param {string} targetId
+ */
+async function castVote(socketId, targetId) {
+  const { error } = await supabase
+    .from('players')
+    .update({ vote: targetId })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] castVote failed: ${error.message}`);
+}
+
+/**
+ * resetAllVotes
+ * Sets vote = null for every player in a room.
+ * Called at the start and end of each meeting.
+ *
+ * @param {string} roomId
+ */
+async function resetAllVotes(roomId) {
+  const { error } = await supabase
+    .from('players')
+    .update({ vote: null })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] resetAllVotes failed: ${error.message}`);
+  console.log(`[state] Votes reset for room: ${roomId}`);
+}
+
+/**
+ * setPlayerAlive
+ * Updates a player’s alive status (false = ejected / killed).
+ *
+ * @param {string} socketId
+ * @param {boolean} alive
+ */
+async function setPlayerAlive(socketId, alive) {
+  const { error } = await supabase
+    .from('players')
+    .update({ alive })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] setPlayerAlive failed: ${error.message}`);
+  console.log(`[state] Player ${socketId} alive → ${alive}`);
+}
+
+// ---------------------------------------------------------------------------
+// Task & Sabotage helpers (Module 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * incrementTasksCompleted
+ * Bumps a player's tasks_completed count by 1.
+ *
+ * @param {string} socketId
+ */
+async function incrementTasksCompleted(socketId) {
+  const { data, error: readErr } = await supabase
+    .from('players')
+    .select('tasks_completed')
+    .eq('socket_id', socketId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] incrementTasksCompleted read failed: ${readErr.message}`);
+
+  const next = (data?.tasks_completed ?? 0) + 1;
+
+  const { error } = await supabase
+    .from('players')
+    .update({ tasks_completed: next })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] incrementTasksCompleted write failed: ${error.message}`);
+}
+
+/**
+ * awardSabotagePoints
+ * Adds (or subtracts) sabotage points for an impostor.
+ *
+ * @param {string} socketId
+ * @param {number} delta  — positive to award, negative to spend
+ */
+async function awardSabotagePoints(socketId, delta) {
+  const { data, error: readErr } = await supabase
+    .from('players')
+    .select('sabotage_points')
+    .eq('socket_id', socketId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] awardSabotagePoints read failed: ${readErr.message}`);
+
+  const next = Math.max(0, (data?.sabotage_points ?? 0) + delta);
+
+  const { error } = await supabase
+    .from('players')
+    .update({ sabotage_points: next })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] awardSabotagePoints write failed: ${error.message}`);
+}
+
+/**
+ * incrementRoomTaskProgress
+ * Bumps the room-level task_progress counter by 1.
+ *
+ * @param {string} roomId
+ */
+async function incrementRoomTaskProgress(roomId) {
+  const { data, error: readErr } = await supabase
+    .from('rooms')
+    .select('task_progress')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] incrementRoomTaskProgress read failed: ${readErr.message}`);
+
+  const next = (data?.task_progress ?? 0) + 1;
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({ task_progress: next })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] incrementRoomTaskProgress write failed: ${error.message}`);
+}
+
+/**
+ * getRoomTaskProgress
+ * Returns the current task_progress value for a room.
+ *
+ * @param {string} roomId
+ * @returns {Promise<number>}
+ */
+async function getRoomTaskProgress(roomId) {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('task_progress')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[state] getRoomTaskProgress failed: ${error.message}`);
+  return data?.task_progress ?? 0;
+}
+
+/**
+ * resetRoomTaskProgress
+ * Resets the room's task_progress counter to 0 (used on rematch).
+ *
+ * @param {string} roomId
+ */
+async function resetRoomTaskProgress(roomId) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ task_progress: 0 })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] resetRoomTaskProgress failed: ${error.message}`);
+}
+
+/**
+ * getSabotageStations
+ * Returns the sabotage_stations JSONB object for a room.
+ *
+ * @param {string} roomId
+ * @returns {Promise<Record<string, object>>}
+ */
+async function getSabotageStations(roomId) {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('sabotage_stations')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[state] getSabotageStations failed: ${error.message}`);
+  return data?.sabotage_stations ?? {};
+}
+
+/**
+ * setSabotageStations
+ * Replaces the sabotage_stations JSONB object for a room.
+ *
+ * @param {string} roomId
+ * @param {Record<string, object>} stations
+ */
+async function setSabotageStations(roomId, stations) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ sabotage_stations: stations })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] setSabotageStations failed: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -435,4 +739,22 @@ module.exports = {
   updatePlayerPosition,
   getPlayerState,
   isMeetingActive,
+  // Module 4 — timer & timeout
+  setRoomTimer,
+  incrementRound,
+  setPlayerTimeout,
+  clearPlayerTimeout,
+  // Module 5 — meeting & voting
+  setMeetingActive,
+  castVote,
+  resetAllVotes,
+  setPlayerAlive,
+  // Module 6 — tasks & sabotage
+  incrementTasksCompleted,
+  awardSabotagePoints,
+  incrementRoomTaskProgress,
+  getRoomTaskProgress,
+  getSabotageStations,
+  setSabotageStations,
+  resetRoomTaskProgress,
 };

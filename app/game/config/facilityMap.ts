@@ -1,136 +1,201 @@
-import type { RoomConfig, TaskStationConfig } from "../types/game.types";
+import type { MapConfig, TileType } from "../types/game.types";
 
-// ─── Facility Map ─────────────────────────────────────────────────────────────
-// 80×65 tile grid.  Rooms are separated by NARROW 4-tile-wide tunnels so
-// walking between rooms feels like travelling through a corridor, not just
-// crossing an open area.
-//
-// Layout (3 columns × left/center/right):
-//   Left   x=2 …15        Corridors   x=16…31 / x=48…61      Right x=62…75
-//   Center x=32…47
-//
-// Vertical gaps between rooms in the same column are filled with 4-wide tunnels.
-// 0=void  1=dark floor  2=light floor  3=wall  4=corridor
+// ─── Facility Maps ────────────────────────────────────────────
+// Each map is 16×16 tiles.
+// 0=wall  1=floor  2=portal  3=task spot
 
-export const MAP_COLS = 80;
-export const MAP_ROWS = 65;
-
-// ─── Rooms ────────────────────────────────────────────────────────────────────
-export const ROOMS: RoomConfig[] = [
-  // ── Left column ─────────────────────────────────────────────────────────────
-  { id: "reactor",    name: "Reactor Core",    x: 2,  y: 2,  w: 14, h: 12, floorColor: 0x1f0f2e },
-  { id: "server",     name: "Server Room",     x: 2,  y: 22, w: 14, h: 12, floorColor: 0x0f1a2a },
-  { id: "security",   name: "Security",        x: 2,  y: 41, w: 14, h: 10, floorColor: 0x200d0d },
-  { id: "medbay",     name: "Med Bay",         x: 2,  y: 57, w: 14, h: 7,  floorColor: 0x0d1b2e },
-
-  // ── Center column ────────────────────────────────────────────────────────────
-  { id: "cafeteria",  name: "Cafeteria",       x: 32, y: 2,  w: 16, h: 16, floorColor: 0x1c1310 },
-  { id: "storage",    name: "Data Vault",      x: 32, y: 26, w: 16, h: 12, floorColor: 0x0c0a09 },
-  { id: "admin",      name: "Admin",           x: 32, y: 47, w: 16, h: 16, floorColor: 0x0d1a30 },
-
-  // ── Right column ─────────────────────────────────────────────────────────────
-  { id: "weapons",    name: "Weapons Bay",     x: 62, y: 2,  w: 14, h: 12, floorColor: 0x2d0808 },
-  { id: "shields",    name: "Shield Control",  x: 62, y: 22, w: 14, h: 12, floorColor: 0x081d10 },
-  { id: "navigation", name: "Navigation",      x: 62, y: 41, w: 14, h: 10, floorColor: 0x0a1020 },
-  { id: "comms",      name: "Comms Hub",       x: 62, y: 57, w: 14, h: 7,  floorColor: 0x151020 },
-];
-
-// ─── Corridors ────────────────────────────────────────────────────────────────
-// All tunnels are exactly 4 tiles wide so they feel like a narrow passage.
-// Vertical tunnels run between room gaps; horizontal tunnels cross between columns.
-interface Corridor { x: number; y: number; w: number; h: number; }
-
-export const CORRIDORS: Corridor[] = [
-  // ── Left column — vertical tunnels ───────────────────────────────────────────
-  { x: 6,  y: 14, w: 4, h: 8  }, // reactor  (ends y=14) → server   (starts y=22)
-  { x: 6,  y: 34, w: 4, h: 7  }, // server   (ends y=34) → security (starts y=41)
-  { x: 6,  y: 51, w: 4, h: 6  }, // security (ends y=51) → medbay   (starts y=57)
-
-  // ── Center column — vertical tunnels ─────────────────────────────────────────
-  { x: 37, y: 18, w: 4, h: 8  }, // cafeteria (ends y=18) → storage (starts y=26)
-  { x: 37, y: 38, w: 4, h: 9  }, // storage   (ends y=38) → admin   (starts y=47)
-
-  // ── Right column — vertical tunnels ──────────────────────────────────────────
-  { x: 66, y: 14, w: 4, h: 8  }, // weapons   → shields
-  { x: 66, y: 34, w: 4, h: 7  }, // shields   → navigation
-  { x: 66, y: 51, w: 4, h: 6  }, // navigation→ comms
-
-  // ── Left ↔ Center — horizontal tunnels (h=4 each) ────────────────────────────
-  { x: 16, y: 6,  w: 16, h: 4 }, // reactor   ↔ cafeteria
-  { x: 16, y: 28, w: 16, h: 4 }, // server    ↔ storage
-  { x: 16, y: 57, w: 16, h: 4 }, // medbay    ↔ admin
-
-  // ── Center ↔ Right — horizontal tunnels (h=4 each) ───────────────────────────
-  { x: 48, y: 6,  w: 14, h: 4 }, // cafeteria ↔ weapons
-  { x: 48, y: 28, w: 14, h: 4 }, // storage   ↔ shields
-  { x: 48, y: 57, w: 14, h: 4 }, // admin     ↔ comms
-];
-
-// ─── Task Stations ────────────────────────────────────────────────────────────
-export const TASK_STATIONS: TaskStationConfig[] = [
-  { id: "coolant",   tileX: 8,  tileY: 7,  label: "Fix Coolant",    room: "reactor",    icon: "*" },
-  { id: "plasma",    tileX: 11, tileY: 11, label: "Plasma Balance", room: "reactor",    icon: "+" },
-  { id: "reboot",    tileX: 8,  tileY: 27, label: "Reboot Server",  room: "server",     icon: ">" },
-  { id: "firewall",  tileX: 11, tileY: 31, label: "Patch Firewall", room: "server",     icon: "#" },
-  { id: "lockdown",  tileX: 8,  tileY: 46, label: "Lockdown Codes", room: "security",   icon: "@" },
-  { id: "scan",      tileX: 8,  tileY: 61, label: "Bio Scan",       room: "medbay",     icon: "+" },
-  { id: "swipe",     tileX: 37, tileY: 7,  label: "Swipe Card",     room: "cafeteria",  icon: ">" },
-  { id: "wires",     tileX: 42, tileY: 14, label: "Fix Wires",      room: "cafeteria",  icon: "#" },
-  { id: "upload",    tileX: 37, tileY: 31, label: "Upload Data",    room: "storage",    icon: "@" },
-  { id: "chartmap",  tileX: 37, tileY: 52, label: "Chart Course",   room: "admin",      icon: ">" },
-  { id: "vote",      tileX: 42, tileY: 59, label: "Cast Vote",      room: "admin",      icon: "*" },
-  { id: "calibrate", tileX: 66, tileY: 7,  label: "Calibrate Guns", room: "weapons",    icon: "+" },
-  { id: "shields2",  tileX: 66, tileY: 27, label: "Prime Shields",  room: "shields",    icon: "#" },
-  { id: "navroute",  tileX: 66, tileY: 46, label: "Plot Route",     room: "navigation", icon: "@" },
-  { id: "divert",    tileX: 66, tileY: 61, label: "Divert Power",   room: "comms",      icon: ">" },
-];
-
-// ─── Map Generator ────────────────────────────────────────────────────────────
-export function generateFacilityMap(): number[][] {
-  const map: number[][] = Array.from({ length: MAP_ROWS }, () =>
-    new Array(MAP_COLS).fill(0),
-  );
-
-  // ── Rooms ──
-  for (const room of ROOMS) {
-    for (let r = room.y; r < room.y + room.h; r++) {
-      for (let c = room.x; c < room.x + room.w; c++) {
-        const isWall =
-          r === room.y || r === room.y + room.h - 1 ||
-          c === room.x || c === room.x + room.w - 1;
-        map[r][c] = isWall ? 3 : ((r + c) % 2 === 0 ? 1 : 2);
-      }
+// Helper: create a 16×16 grid filled with walls, then carve an interior
+function makeRoom(): TileType[][] {
+  const g: TileType[][] = [];
+  for (let r = 0; r < 16; r++) {
+    const row: TileType[] = [];
+    for (let c = 0; c < 16; c++) {
+      const isWall = r === 0 || r === 15 || c === 0 || c === 15;
+      row.push(isWall ? 0 : 1);
     }
+    g.push(row);
   }
-
-  // ── Corridors ──
-  for (const cor of CORRIDORS) {
-    for (let r = cor.y; r < cor.y + cor.h; r++) {
-      for (let c = cor.x; c < cor.x + cor.w; c++) {
-        if (r < 0 || r >= MAP_ROWS || c < 0 || c >= MAP_COLS) continue;
-        const isEdge =
-          r === cor.y || r === cor.y + cor.h - 1 ||
-          c === cor.x || c === cor.x + cor.w - 1;
-        if (isEdge) {
-          if (map[r][c] === 0) map[r][c] = 3;
-        } else {
-          map[r][c] = 4;
-        }
-      }
-    }
-  }
-
-  // ── Punch doorways where corridors meet room walls ──
-  for (const cor of CORRIDORS) {
-    for (let r = cor.y + 1; r < cor.y + cor.h - 1; r++) {
-      if (map[r][cor.x]             === 3) map[r][cor.x]             = 4;
-      if (map[r][cor.x + cor.w - 1] === 3) map[r][cor.x + cor.w - 1] = 4;
-    }
-    for (let c = cor.x + 1; c < cor.x + cor.w - 1; c++) {
-      if (map[cor.y][c]             === 3) map[cor.y][c]             = 4;
-      if (map[cor.y + cor.h - 1][c] === 3) map[cor.y + cor.h - 1][c] = 4;
-    }
-  }
-
-  return map;
+  return g;
 }
+
+// Punch a portal hole in the wall
+function setTile(grid: TileType[][], r: number, c: number, t: TileType) {
+  grid[r][c] = t;
+}
+
+// ─── Cafeteria (spawn, castle theme, warm gold) ───────────────
+function makeCafeteria(): TileType[][] {
+  const g = makeRoom();
+
+  // Internal divider wall (vertical at col 8, with 3-tile door in middle)
+  for (let r = 1; r < 15; r++) {
+    if (r >= 6 && r <= 8) continue; // door gap
+    setTile(g, r, 8, 0);
+  }
+
+  // Portal on RIGHT wall → Code Lab (row 7-8)
+  setTile(g, 7, 15, 2);
+  setTile(g, 8, 15, 2);
+
+  // Portal on LEFT wall → Debug Room (row 7-8)
+  setTile(g, 7, 0, 2);
+  setTile(g, 8, 0, 2);
+
+  // Portal on BOTTOM wall → Server Vault (col 7-8)
+  setTile(g, 15, 7, 2);
+  setTile(g, 15, 8, 2);
+
+  // Task spots
+  setTile(g, 4, 4, 3);
+  setTile(g, 11, 11, 3);
+
+  return g;
+}
+
+// ─── Code Lab (castle theme, cool blue) ───────────────────────
+function makeCodeLab(): TileType[][] {
+  const g = makeRoom();
+
+  // Internal divider wall (vertical at col 8, door in middle)
+  for (let r = 1; r < 15; r++) {
+    if (r >= 6 && r <= 8) continue;
+    setTile(g, r, 8, 0);
+  }
+
+  // Portal on LEFT wall → back to Cafeteria (row 7-8)
+  setTile(g, 7, 0, 2);
+  setTile(g, 8, 0, 2);
+
+  // Task spots
+  setTile(g, 3, 4, 3);
+  setTile(g, 12, 12, 3);
+
+  return g;
+}
+
+// ─── Debug Room (castle theme, purple) ────────────────────────
+function makeDebugRoom(): TileType[][] {
+  const g = makeRoom();
+
+  // Internal divider wall
+  for (let r = 1; r < 15; r++) {
+    if (r >= 6 && r <= 8) continue;
+    setTile(g, r, 8, 0);
+  }
+
+  // Portal on RIGHT wall → back to Cafeteria (row 7-8)
+  setTile(g, 7, 15, 2);
+  setTile(g, 8, 15, 2);
+
+  // Task spots
+  setTile(g, 4, 3, 3);
+  setTile(g, 11, 12, 3);
+
+  return g;
+}
+
+// ─── Server Vault (sci-fi theme, cyan) ────────────────────────
+function makeServerVault(): TileType[][] {
+  const g = makeRoom();
+
+  // Internal divider wall
+  for (let r = 1; r < 15; r++) {
+    if (r >= 6 && r <= 8) continue;
+    setTile(g, r, 8, 0);
+  }
+
+  // Portal on TOP wall → back to Cafeteria (col 7-8)
+  setTile(g, 0, 7, 2);
+  setTile(g, 0, 8, 2);
+
+  // Task spots
+  setTile(g, 5, 4, 3);
+  setTile(g, 10, 11, 3);
+
+  return g;
+}
+
+// ─── All Maps ─────────────────────────────────────────────────
+export const MAPS: Record<string, MapConfig> = {
+  cafeteria: {
+    id: "cafeteria",
+    name: "Cafeteria",
+    theme: "castle",
+    trimColor: 0xffcc33,
+    floorColor: 0x1a1510,
+    grid: makeCafeteria(),
+    spawnX: 4,
+    spawnY: 4,
+    portals: [
+      { tileX: 15, tileY: 7, targetMap: "codelab", targetTileX: 1, targetTileY: 7, label: "→ Code Lab" },
+      { tileX: 15, tileY: 8, targetMap: "codelab", targetTileX: 1, targetTileY: 8, label: "→ Code Lab" },
+      { tileX: 0, tileY: 7, targetMap: "debugroom", targetTileX: 14, targetTileY: 7, label: "→ Debug Room" },
+      { tileX: 0, tileY: 8, targetMap: "debugroom", targetTileX: 14, targetTileY: 8, label: "→ Debug Room" },
+      { tileX: 7, tileY: 15, targetMap: "servervault", targetTileX: 7, targetTileY: 1, label: "↓ Server Vault" },
+      { tileX: 8, tileY: 15, targetMap: "servervault", targetTileX: 8, targetTileY: 1, label: "↓ Server Vault" },
+    ],
+    tasks: [
+      { id: "swipe", tileX: 4, tileY: 4, label: "Swipe Card", room: "cafeteria", icon: "*" },
+      { id: "wires", tileX: 11, tileY: 11, label: "Fix Wires", room: "cafeteria", icon: "+" },
+    ],
+  },
+
+  codelab: {
+    id: "codelab",
+    name: "Code Lab",
+    theme: "castle",
+    trimColor: 0x00aaff,
+    floorColor: 0x0c1628,
+    grid: makeCodeLab(),
+    spawnX: 1,
+    spawnY: 7,
+    portals: [
+      { tileX: 0, tileY: 7, targetMap: "cafeteria", targetTileX: 14, targetTileY: 7, label: "→ Cafeteria" },
+      { tileX: 0, tileY: 8, targetMap: "cafeteria", targetTileX: 14, targetTileY: 8, label: "→ Cafeteria" },
+    ],
+    tasks: [
+      { id: "compile", tileX: 4, tileY: 3, label: "Compile Code", room: "codelab", icon: ">" },
+      { id: "debug_var", tileX: 12, tileY: 12, label: "Fix Variables", room: "codelab", icon: "#" },
+    ],
+  },
+
+  debugroom: {
+    id: "debugroom",
+    name: "Debug Room",
+    theme: "castle",
+    trimColor: 0xcc66ff,
+    floorColor: 0x140c1e,
+    grid: makeDebugRoom(),
+    spawnX: 14,
+    spawnY: 7,
+    portals: [
+      { tileX: 15, tileY: 7, targetMap: "cafeteria", targetTileX: 1, targetTileY: 7, label: "→ Cafeteria" },
+      { tileX: 15, tileY: 8, targetMap: "cafeteria", targetTileX: 1, targetTileY: 8, label: "→ Cafeteria" },
+    ],
+    tasks: [
+      { id: "stacktrc", tileX: 3, tileY: 4, label: "Read Stack Trace", room: "debugroom", icon: "@" },
+      { id: "memleak", tileX: 12, tileY: 11, label: "Fix Memory Leak", room: "debugroom", icon: "!" },
+    ],
+  },
+
+  servervault: {
+    id: "servervault",
+    name: "Server Vault",
+    theme: "scifi",
+    trimColor: 0x00e5ff,
+    floorColor: 0x0a1628,
+    grid: makeServerVault(),
+    spawnX: 7,
+    spawnY: 1,
+    portals: [
+      { tileX: 7, tileY: 0, targetMap: "cafeteria", targetTileX: 7, targetTileY: 14, label: "↑ Cafeteria" },
+      { tileX: 8, tileY: 0, targetMap: "cafeteria", targetTileX: 8, targetTileY: 14, label: "↑ Cafeteria" },
+    ],
+    tasks: [
+      { id: "patch_fw", tileX: 4, tileY: 5, label: "Patch Firewall", room: "servervault", icon: "⛊" },
+      { id: "flush_cache", tileX: 11, tileY: 10, label: "Flush Cache", room: "servervault", icon: "⟳" },
+    ],
+  },
+};
+
+export const START_MAP = "cafeteria";

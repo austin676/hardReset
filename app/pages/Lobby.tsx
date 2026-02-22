@@ -20,8 +20,9 @@ export default function Lobby() {
     if (canStart) return startNeonPulse(startBtnRef.current, '#22a844')
   }, [canStart])
 
+  // Navigate to game screen when game starts
   useEffect(() => {
-    const onGameStarted = () => navigate('/playing')
+    const onGameStarted = () => navigate('/game')
     window.addEventListener('socket:gameStarted', onGameStarted)
     return () => window.removeEventListener('socket:gameStarted', onGameStarted)
   }, [navigate])

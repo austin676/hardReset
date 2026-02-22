@@ -19,8 +19,10 @@ export interface Task {
   id: string;
   domain: "oops" | "dsa" | "frontend" | string;
   language: "python" | "javascript";
+  title?: string;
   prompt: string;
   starterCode: string;
+  expectedOutput?: string;  // present for LLM-generated tasks
 }
 
 export interface SubmitResult {
@@ -65,6 +67,33 @@ export async function submitCode(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error ?? "Code submission failed");
+  }
+
+  return res.json();
+}
+
+/**
+ * Run user code against an expected output (for LLM-generated tasks).
+ * No taskId needed — expectedOutput is provided directly.
+ *
+ * @param language       - "python" | "javascript"
+ * @param userCode       - full source code written by the player
+ * @param expectedOutput - the exact stdout the code must produce
+ */
+export async function runCode(
+  language: string,
+  userCode: string,
+  expectedOutput: string
+): Promise<SubmitResult> {
+  const res = await fetch(`${BASE_URL}/api/tasks/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language, userCode, expectedOutput }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error ?? "Code execution failed");
   }
 
   return res.json();
