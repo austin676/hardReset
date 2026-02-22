@@ -57,6 +57,7 @@ export const useSocket = () => {
     setScores,
     addScore,
     setRoundLeaderboard,
+    setAbilityPoints,
     players,
   } = useGameStore()
 
@@ -156,6 +157,11 @@ export const useSocket = () => {
       })
     })
 
+    // ── Impostor sabotage points update (fake task completion) ────────────────
+    socket.on('sabotagePointsUpdated', ({ sabotagePoints }: any) => {
+      if (typeof sabotagePoints === 'number') setAbilityPoints(sabotagePoints)
+    })
+
     // ── Task events (puzzle engine integration) ──────────────────
     socket.on('gameStarted', ({ round, players: allPlayers }: any) => {
       if (round) setRoundNumber(round)
@@ -174,7 +180,7 @@ export const useSocket = () => {
     })
 
     // ── Real-time movement: forward other players into Phaser ────────────────
-    socket.on('playerMoved', ({ socketId, position, direction }: any) => {
+    socket.on('playerMoved', ({ socketId, position, direction, mapId }: any) => {
       if (socketId === socket.id) return  // ignore echo (shouldn't happen)
       // Look up this player in the store to get name + color
       const { players: storePlayers } = useGameStore.getState()
@@ -191,6 +197,7 @@ export const useSocket = () => {
           x:         position.x,
           y:         position.y,
           direction: direction ?? 'down',
+          mapId:     mapId ?? 'cafeteria',
           isMoving:  true,
           role:      'agent',
           name:      found?.name ?? '???',
@@ -207,10 +214,17 @@ export const useSocket = () => {
       })
     })
 
-    socket.on('taskCompleted', ({ playerId, taskId, roomCompletedTasks, totalRoomTasks }: any) => {
-      // If this is our task, mark it locally too
-      if (playerId === socket.id) markTaskDone(taskId)
-      setRoomTaskProgress(roomCompletedTasks, totalRoomTasks)
+    // ── taskProgressUpdated: a crewmate completed a task station ──────────────
+    socket.on('taskProgressUpdated', ({ completedBy, taskProgress }: any) => {
+      // Award 100 pts to the completing player in the live leaderboard
+      if (completedBy) {
+        const currentScores = useGameStore.getState().scores
+        setScores({ ...currentScores, [completedBy]: (currentScores[completedBy] ?? 0) + 100 })
+      }
+      if (typeof taskProgress === 'number') {
+        const { totalRoomTasks } = useGameStore.getState()
+        setRoomTaskProgress(taskProgress, totalRoomTasks > 0 ? totalRoomTasks : taskProgress)
+      }
     })
 
     socket.on('activityUpdate', ({ message }: { message: string }) => {
@@ -230,6 +244,16 @@ export const useSocket = () => {
 
     socket.on('scoreUpdate', ({ scores: allScores }: any) => {
       if (allScores) setScores(allScores)
+    })
+
+    // ── Task replaced (expired timer) — swap old task for new one ────────────
+    socket.on('taskReplaced', ({ oldTaskId, newTask }: any) => {
+      if (!newTask) return
+      const { myTasks: current } = useGameStore.getState()
+      const updated = current.map(t => t.id === oldTaskId ? newTask : t)
+      // If the old task wasn't found, just append
+      if (!current.some(t => t.id === oldTaskId)) updated.push(newTask)
+      setMyTasks(updated)
     })
 
     socket.on('timerUpdate', ({ timer }: any) => {
@@ -262,13 +286,15 @@ export const useSocket = () => {
       socket.off('chatMessage')
       socket.off('gameStarted')
       socket.off('tasksAssigned')
-      socket.off('taskCompleted')
+      socket.off('taskProgressUpdated')
       socket.off('activityUpdate')
       socket.off('playerMoved')
       socket.off('playerLeft')
       socket.off('roleAssigned')
       socket.off('abilityReceived')
       socket.off('abilityUsed')
+      socket.off('sabotagePointsUpdated')
+      socket.off('taskReplaced')
     socket.off('scoreUpdate')
     }
 

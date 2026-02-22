@@ -24,7 +24,8 @@ const {
 
 const { stopRoomTimer }             = require('./timerHandlers');
 const { checkAndResolveIfComplete } = require('./meetingHandlers');
-const { stopSabotageChecker }       = require('./taskHandlers');
+const { stopSabotageChecker, clearRoomScores } = require('./taskHandlers');
+const { setPlayerTopics, deletePlayerTopics } = require('./playerTopics');
 
 // ---------------------------------------------------------------------------
 // Internal utility
@@ -50,13 +51,18 @@ async function broadcastPlayerList(io, roomId) {
  * Emits:  roomCreated → { roomId, players }
  */
 async function handleCreateRoom(socket, io, data) {
-  const { name, avatar } = data;
+  const { name, avatar, topics } = data;
 
   // Validate name
   if (!name || typeof name !== 'string' || name.trim() === '') {
     socket.emit('error', { message: 'A player name is required to create a room.' });
     console.warn(`[roomHandlers] createRoom rejected — missing name (socket: ${socket.id})`);
     return;
+  }
+
+  // Store topics in memory
+  if (Array.isArray(topics) && topics.length > 0) {
+    setPlayerTopics(socket.id, topics);
   }
 
   try {
@@ -92,13 +98,18 @@ async function handleCreateRoom(socket, io, data) {
  * Broadcasts to room:   playerListUpdated → { roomId, players }
  */
 async function handleJoinRoom(socket, io, data) {
-  const { roomId, name, avatar } = data;
+  const { roomId, name, avatar, topics } = data;
 
   // --- Guard: name -------------------------------------------------------
   if (!name || typeof name !== 'string' || name.trim() === '') {
     socket.emit('error', { message: 'A player name is required to join a room.' });
     console.warn(`[roomHandlers] joinRoom rejected — missing name (socket: ${socket.id})`);
     return;
+  }
+
+  // Store topics in memory
+  if (Array.isArray(topics) && topics.length > 0) {
+    setPlayerTopics(socket.id, topics);
   }
 
   try {
@@ -150,6 +161,9 @@ async function handleJoinRoom(socket, io, data) {
 async function handleDisconnect(socket, io) {
   console.log(`[roomHandlers] disconnect — socket: ${socket.id}`);
 
+  // Clean up ephemeral topic preference
+  deletePlayerTopics(socket.id);
+
   // socket.rooms contains the socket's own id + any joined room ids
   const joinedRooms = [...socket.rooms].filter((r) => r !== socket.id);
 
@@ -161,6 +175,7 @@ async function handleDisconnect(socket, io) {
       if (empty) {
         stopRoomTimer(roomId);          // cancel round countdown (Module 4)
         stopSabotageChecker(roomId);    // cancel sabotage expiry checker (Module 6)
+        clearRoomScores(roomId);        // clear in-memory score cache
         await deleteRoom(roomId);
         console.log(`[roomHandlers] Room ${roomId} deleted — no players remaining`);
       } else {

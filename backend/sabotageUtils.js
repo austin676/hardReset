@@ -19,10 +19,13 @@ const SABOTAGE_DURATION_MS = 20_000; // 20 seconds
 
 // How many sabotage points an impostor earns per completed task interaction.
 // (They click "complete task" on a real station but get sabotage points, not progress.)
-const SABOTAGE_POINTS_PER_TASK = 1;
+// Ability unlock thresholds (frontend mirrors these):
+//   code_delay     → 50  pts  (1 fake task)
+//   syntax_scramble → 100 pts  (2 fake tasks)
+const SABOTAGE_POINTS_PER_TASK = 50;
 
-// Cost in sabotage points to trigger one sabotage event.
-const SABOTAGE_COST = 2;
+// Cost in sabotage points to trigger one station-sabotage event.
+const SABOTAGE_COST = 50;
 
 // Timeout (seconds) applied to a crewmate who interacts with a sabotaged station.
 const SABOTAGE_TIMEOUT_SECONDS = 15;
