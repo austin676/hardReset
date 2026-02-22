@@ -79,62 +79,124 @@ function drawBean(
 ): void {
   ctx.clearRect(ox, oy, FW, FH);
 
-  // Shadow
-  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  // Shadow (wider, softer)
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
   ctx.beginPath();
-  ctx.ellipse(ox + 8, oy + 18, 5, 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(ox + 8, oy + 18, 6, 2.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body gradient
-  const grad = ctx.createLinearGradient(ox, oy + 2, ox, oy + 16);
+  // Legs (walk cycle) — draw BEHIND body
+  const legColor = dark;
+  ctx.fillStyle = legColor;
+  if (frame % 2 === 0) {
+    // Left leg forward, right leg back
+    ctx.beginPath();
+    ctx.roundRect(ox + 4, oy + 14, 3, 5, 1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(ox + 9, oy + 15, 3, 4, 1);
+    ctx.fill();
+  } else {
+    // Right leg forward, left leg back
+    ctx.beginPath();
+    ctx.roundRect(ox + 4, oy + 15, 3, 4, 1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(ox + 9, oy + 14, 3, 5, 1);
+    ctx.fill();
+  }
+
+  // Body — rounder bean shape
+  const grad = ctx.createLinearGradient(ox + 2, oy + 2, ox + 14, oy + 16);
   grad.addColorStop(0, lite);
-  grad.addColorStop(0.5, body);
+  grad.addColorStop(0.4, body);
   grad.addColorStop(1, dark);
   ctx.fillStyle = grad;
 
   ctx.beginPath();
-  ctx.moveTo(ox + 5, oy + 3);
-  ctx.quadraticCurveTo(ox + 3, oy + 2, ox + 8, oy + 1);
-  ctx.quadraticCurveTo(ox + 13, oy + 2, ox + 11, oy + 3);
-  ctx.lineTo(ox + 11, oy + 14);
-  ctx.quadraticCurveTo(ox + 11, oy + 16, ox + 8, oy + 16);
-  ctx.quadraticCurveTo(ox + 5, oy + 16, ox + 5, oy + 14);
+  ctx.moveTo(ox + 4, oy + 4);
+  ctx.quadraticCurveTo(ox + 1, oy + 2, ox + 8, oy + 1);
+  ctx.quadraticCurveTo(ox + 15, oy + 2, ox + 12, oy + 4);
+  ctx.lineTo(ox + 13, oy + 13);
+  ctx.quadraticCurveTo(ox + 13, oy + 15, ox + 8, oy + 15);
+  ctx.quadraticCurveTo(ox + 3, oy + 15, ox + 3, oy + 13);
   ctx.closePath();
   ctx.fill();
+
+  // Body outline
   ctx.strokeStyle = dark;
-  ctx.lineWidth = 0.5;
+  ctx.lineWidth = 0.6;
   ctx.stroke();
 
-  // Visor
-  ctx.fillStyle = "rgba(147,197,253,0.9)";
-  if (dir === 0)      ctx.fillRect(ox + 5, oy + 5, 6, 3);
-  else if (dir === 1) ctx.fillRect(ox + 4, oy + 5, 4, 3);
-  else if (dir === 2) ctx.fillRect(ox + 8, oy + 5, 4, 3);
-  else                ctx.fillRect(ox + 6, oy + 4, 4, 2);
+  // Belly highlight (subtle shine)
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.ellipse(ox + 7, oy + 9, 3, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Visor highlight
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  // Visor (large, rounded)
+  const visorGrad = ctx.createLinearGradient(ox + 4, oy + 4, ox + 12, oy + 9);
+  visorGrad.addColorStop(0, "rgba(180,220,255,1)");
+  visorGrad.addColorStop(1, "rgba(80,160,255,0.85)");
+  ctx.fillStyle = visorGrad;
+  if (dir === 0) {       // facing down
+    ctx.beginPath();
+    ctx.roundRect(ox + 4, oy + 4, 8, 4, 2);
+    ctx.fill();
+  } else if (dir === 1) { // facing left
+    ctx.beginPath();
+    ctx.roundRect(ox + 3, oy + 4, 6, 4, 2);
+    ctx.fill();
+  } else if (dir === 2) { // facing right
+    ctx.beginPath();
+    ctx.roundRect(ox + 7, oy + 4, 6, 4, 2);
+    ctx.fill();
+  } else {                 // facing up — small visor reflection
+    ctx.beginPath();
+    ctx.roundRect(ox + 5, oy + 3, 6, 3, 1);
+    ctx.fill();
+  }
+
+  // Visor highlight (white glint)
+  ctx.fillStyle = "rgba(255,255,255,0.65)";
   if (dir !== 3) {
-    const vx = dir === 1 ? ox + 5 : dir === 2 ? ox + 9 : ox + 6;
-    ctx.fillRect(vx, oy + 5, 2, 1);
+    const vx = dir === 1 ? ox + 4 : dir === 2 ? ox + 8 : ox + 5;
+    ctx.fillRect(vx, oy + 4, 2, 1);
   }
 
   // Backpack
   ctx.fillStyle = dark;
-  if (dir === 0)      ctx.fillRect(ox + 11, oy + 6, 3, 7);
-  else if (dir === 1) ctx.fillRect(ox + 12, oy + 6, 3, 6);
-  else if (dir === 2) ctx.fillRect(ox + 1, oy + 6, 3, 6);
-  else { ctx.fillRect(ox + 2, oy + 6, 4, 8); ctx.fillRect(ox + 10, oy + 6, 4, 8); }
-
-  // Legs (walk cycle)
-  ctx.fillStyle = body;
-  if (frame % 2 === 0) {
-    ctx.fillRect(ox + 5, oy + 15, 2, 3);
-    ctx.fillRect(ox + 9, oy + 16, 2, 2);
+  if (dir === 0) {
+    ctx.beginPath();
+    ctx.roundRect(ox + 12, oy + 5, 3, 8, 1);
+    ctx.fill();
+  } else if (dir === 1) {
+    ctx.beginPath();
+    ctx.roundRect(ox + 12, oy + 5, 3, 7, 1);
+    ctx.fill();
+  } else if (dir === 2) {
+    ctx.beginPath();
+    ctx.roundRect(ox + 1, oy + 5, 3, 7, 1);
+    ctx.fill();
   } else {
-    ctx.fillRect(ox + 5, oy + 16, 2, 2);
-    ctx.fillRect(ox + 9, oy + 15, 2, 3);
+    // Back view — backpack visible both sides
+    ctx.beginPath();
+    ctx.roundRect(ox + 1, oy + 5, 3, 8, 1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(ox + 12, oy + 5, 3, 8, 1);
+    ctx.fill();
   }
+
+  // Antenna nub on top
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(ox + 8, oy + 1, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = lite;
+  ctx.beginPath();
+  ctx.arc(ox + 8, oy + 0.5, 0.8, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ── Player class ─────────────────────────────────────────
