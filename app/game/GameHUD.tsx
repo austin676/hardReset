@@ -1074,49 +1074,17 @@ export default function GameHUD() {
             {/* LEFT — Round indicator */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 160 }}>
               {roundNumber > 0 ? (
-                <>
-                  <div style={{
-                    background: "rgba(0,255,240,0.08)",
-                    border: "1px solid rgba(0,255,240,0.25)",
-                    borderRadius: 4, padding: "3px 12px",
-                  }}>
-                    <span style={{
-                      fontSize: 13, fontWeight: 900, letterSpacing: "0.15em",
-                      color: "#00fff0",
-                      textShadow: "0 0 8px rgba(0,255,240,0.4), 0 1px 0 #000",
-                    }}>ROUND {roundNumber}</span>
-                  </div>
-                  {/* Timer with reducing bar */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{
-                      fontSize: 14, fontWeight: 900,
-                      color: timerColor,
-                      textShadow: timeLeft <= 30 ? "0 0 10px rgba(239,68,68,0.6)" : "0 0 6px rgba(0,255,240,0.3)",
-                      letterSpacing: "0.08em",
-                      animation: timeLeft <= 10 ? "pulse 0.5s infinite alternate" : "none",
-                    }}>
-                      {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
-                    </span>
-                    <div style={{
-                      width: 100, height: 6, borderRadius: 3,
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.05)",
-                      overflow: "hidden",
-                    }}>
-                      <div style={{
-                        height: "100%", borderRadius: 3,
-                        width: `${timerPct}%`,
-                        background: timeLeft <= 30
-                          ? "linear-gradient(90deg, #ef4444, #ff6b6b)"
-                          : timeLeft <= 60
-                            ? "linear-gradient(90deg, #f97316, #fbbf24)"
-                            : "linear-gradient(90deg, #00fff0, #00aaff)",
-                        boxShadow: `0 0 6px ${timerColor}60`,
-                        transition: "width 1s linear",
-                      }} />
-                    </div>
-                  </div>
-                </>
+                <div style={{
+                  background: "rgba(0,255,240,0.08)",
+                  border: "1px solid rgba(0,255,240,0.25)",
+                  borderRadius: 4, padding: "3px 12px",
+                }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: 900, letterSpacing: "0.15em",
+                    color: "#00fff0",
+                    textShadow: "0 0 8px rgba(0,255,240,0.4), 0 1px 0 #000",
+                  }}>ROUND {roundNumber}</span>
+                </div>
               ) : (
                 <span style={{ fontSize: 11, color: "rgba(148,163,184,0.4)", letterSpacing: "0.1em" }}>PRE-GAME</span>
               )}
@@ -1144,8 +1112,40 @@ export default function GameHUD() {
               </div>
             </div>
 
-            {/* RIGHT — spacer to balance */}
-            <div style={{ minWidth: 160 }} />
+            {/* RIGHT — Timer with reducing bar */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160, justifyContent: "flex-end" }}>
+              {roundNumber > 0 && (
+                <>
+                  <div style={{
+                    width: 100, height: 6, borderRadius: 3,
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.05)",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{
+                      height: "100%", borderRadius: 3,
+                      width: `${timerPct}%`,
+                      background: timeLeft <= 30
+                        ? "linear-gradient(90deg, #ef4444, #ff6b6b)"
+                        : timeLeft <= 60
+                          ? "linear-gradient(90deg, #f97316, #fbbf24)"
+                          : "linear-gradient(90deg, #00fff0, #00aaff)",
+                      boxShadow: `0 0 6px ${timerColor}60`,
+                      transition: "width 1s linear",
+                    }} />
+                  </div>
+                  <span style={{
+                    fontSize: 14, fontWeight: 900,
+                    color: timerColor,
+                    textShadow: timeLeft <= 30 ? "0 0 10px rgba(239,68,68,0.6)" : "0 0 6px rgba(0,255,240,0.3)",
+                    letterSpacing: "0.08em",
+                    animation: timeLeft <= 10 ? "pulse 0.5s infinite alternate" : "none",
+                  }}>
+                    {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         );
       })()}

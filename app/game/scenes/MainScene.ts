@@ -7,6 +7,7 @@ import { MAP_THEMES, WORLD_POSITIONS, MAP_PROPS, GHOST_LAYER_CONFIG, type MapThe
 import { Player } from "../objects/Player";
 import { TaskStation } from "../objects/TaskStation";
 import { RemotePlayer } from "../objects/RemotePlayer";
+import { useGameStore } from "~/store/gameStore";
 
 // ─── Drawing helpers ──────────────────────────────────────────
 function drawHexagon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, r: number): void {
@@ -147,7 +148,16 @@ export class MainScene extends Phaser.Scene {
     const px = ((spawnTileX ?? cfg.spawnX) + 0.5) * TILE;
     const py = ((spawnTileY ?? cfg.spawnY) + 0.5) * TILE;
     if (firstLoad) {
-      this.player = new Player(this, px, py, "You", 0x3b82f6);
+      // Use the player's actual name + color from the store
+      const store = useGameStore.getState();
+      const me = store.players.find(p => p.id === store.myPlayerId);
+      const myName = me?.name ?? "You";
+      const myColor = me?.color
+        ? (typeof me.color === "string"
+            ? parseInt((me.color as string).replace("#", ""), 16)
+            : (me.color as unknown as number))
+        : 0x3b82f6;
+      this.player = new Player(this, px, py, myName, myColor);
       this.configCamera();
     } else {
       this.player.setPosition(px, py);
@@ -537,8 +547,8 @@ export class MainScene extends Phaser.Scene {
   /* ── Camera ────────────────────────────────────────── */
   private configCamera(): void {
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setZoom(2.5);
-    this.cameras.main.setDeadzone(40, 30);
+    this.cameras.main.setZoom(3.5);
+    this.cameras.main.setDeadzone(30, 24);
   }
 
   /* ── Proximity → task stations ─────────────────────── */
