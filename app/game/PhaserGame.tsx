@@ -3,6 +3,7 @@ import { useGameStore } from "~/store/gameStore";
 import { useSocket } from "~/hooks/useSocket";
 
 const GameHUD = lazy(() => import("./GameHUD"));
+const MeetingOverlay = lazy(() => import("~/components/MeetingOverlay"));
 
 // ─── PhaserGame ───
 // Client‑only React component that mounts a Phaser canvas and
@@ -43,9 +44,14 @@ export default function PhaserGame() {
     });
   };
 
+  
   // ── Bridge PLAYER_MOVE bus → socket.emit('playerMove') ───────────────────
   useEffect(() => {
     let bus: any;
+    // Resolve socket once instead of dynamic-importing on every movement frame
+    let cachedSock: any = null;
+    import("~/hooks/useSocket").then(({ getSocket }) => { cachedSock = getSocket(); });
+
     import("~/game/GameEventBus").then(({ gameEventBus }) => {
       bus = gameEventBus;
 
@@ -55,10 +61,8 @@ export default function PhaserGame() {
         // Include the current map so other clients know which room we're in
         const mainScene = (window as any).__phaserGame?.scene?.getScene("MainScene") as any;
         const mapId = mainScene?.currentMapId ?? "cafeteria";
-        import("~/hooks/useSocket").then(({ getSocket }) => {
-          const sock = getSocket();
-          if (sock?.connected) sock.emit("playerMove", { roomId: rc, x, y, direction, mapId });
-        });
+        const sock = cachedSock;
+        if (sock?.connected) sock.emit("playerMove", { roomId: rc, x, y, direction, mapId });
       });
 
       // Spawn remote players when Phaser scene becomes ready
@@ -138,6 +142,7 @@ export default function PhaserGame() {
           <div className="absolute inset-0 z-10 pointer-events-none">
             <GameHUD />
           </div>
+          <MeetingOverlay />
         </Suspense>
       )}
     </div>

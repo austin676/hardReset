@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router'
 import { useGameStore } from '../store/gameStore'
@@ -9,9 +9,18 @@ export default function Lobby() {
   const { roomCode, players, myPlayerId } = useGameStore()
   const { emitStartGame } = useSocket()
   const navigate = useNavigate()
+  const [copied, setCopied] = useState(false)
 
   const isHost = players.length > 0 && players[0]?.id === myPlayerId
   const canStart = players.length >= 2
+
+  const handleCopy = () => {
+    if (!roomCode) return
+    navigator.clipboard.writeText(roomCode).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   // Navigate to game screen when game starts
   useEffect(() => {
@@ -32,6 +41,16 @@ export default function Lobby() {
               {roomCode}
             </span>
           </div>
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={handleCopy}
+            className="mt-3 mx-auto flex items-center gap-2 px-5 py-2 rounded-xl
+                       bg-[#1a1c3a] border-2 border-[#2e3060] text-[#9090b0] text-xs font-black
+                       tracking-widest uppercase hover:border-[#e8c030] hover:text-[#e8c030]
+                       transition-all cursor-pointer"
+          >
+            {copied ? '✓ Copied!' : '📋 Copy Code'}
+          </motion.button>
         </div>
 
         {/* Player slots */}
@@ -89,7 +108,7 @@ export default function Lobby() {
             className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-widest
                        border-4 transition-all ${
               canStart
-                ? 'bg-[#1d8c3a] border-[#0d5020] text-white shadow-[0_4px_0_#0d5020] hover:bg-[#22a844] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-[2px]'
+                ? 'bg-[#1d8c3a] border-[#0d5020] text-white shadow-[0_4px_0_#0d5020] hover:bg-[#22a844] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-0.5'
                 : 'bg-[#1a1c3a] border-[#2e3060] text-[#40405a] cursor-not-allowed'
             }`}
           >

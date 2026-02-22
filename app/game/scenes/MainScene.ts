@@ -682,16 +682,19 @@ export class MainScene extends Phaser.Scene {
     gameEventBus.on(GameEvents.CALL_MEETING, () => {
       freezeInput();
       this.scene.pause("MainScene");
-      this.scene.launch("MeetingScene");
+      // MeetingOverlay (React) handles the UI now — no Phaser MeetingScene launch
     });
 
     gameEventBus.on(GameEvents.REPORT_BODY, () => {
       freezeInput();
       this.scene.pause("MainScene");
-      this.scene.launch("MeetingScene");
+      // MeetingOverlay (React) handles the UI now — no Phaser MeetingScene launch
     });
 
-    gameEventBus.on(GameEvents.MEETING_END, () => resumeInput());
+    gameEventBus.on(GameEvents.MEETING_END, () => {
+      resumeInput();
+      this.scene.resume("MainScene");
+    });
 
     gameEventBus.on(GameEvents.REMOTE_PLAYER_MOVE, (data: PlayerState & { mapId?: string }) => {
       const theirMap = (data as any).mapId ?? "cafeteria";

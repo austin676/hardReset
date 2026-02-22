@@ -27,7 +27,7 @@ export default function Playing() {
 
   // Navigate away when phase changes (meeting called or game ends)
   useEffect(() => {
-    if (gamePhase === 'discussion' || gamePhase === 'ejection') navigate('/discussion')
+    if (gamePhase === 'discussion' || gamePhase === 'ejection' || gamePhase === 'duel') navigate('/discussion')
     if (gamePhase === 'results') navigate('/results')
   }, [gamePhase, navigate])
 
@@ -125,7 +125,7 @@ export default function Playing() {
                     }`}
                   >
                     {/* Status dot */}
-                    <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${
+                    <div className={`w-4 h-4 rounded-full border-2 shrink-0 ${
                       done ? 'bg-[#1d8c3a] border-[#1d8c3a]' : 'border-[#40405a] bg-transparent'
                     }`}>
                       {done && <span className="flex items-center justify-center text-white text-xs leading-none">✓</span>}
@@ -167,7 +167,8 @@ export default function Playing() {
         </div>
       </div>
 
-      {/* Emergency Meeting button — fixed bottom */}
+      {/* Emergency Meeting button — fixed bottom (only during playing phase) */}
+      {gamePhase === 'playing' && (
       <div className="fixed bottom-6 left-0 right-0 px-6 flex justify-center">
         <motion.button
           whileTap={{ scale: 0.93 }}
@@ -175,11 +176,12 @@ export default function Playing() {
           className="w-full max-w-lg bg-[#e81010] hover:bg-[#ff2020] active:scale-95
                      text-white font-black text-sm uppercase tracking-widest py-4 rounded-2xl
                      border-4 border-[#901010] shadow-[0_6px_0_#601010]
-                     hover:shadow-[0_3px_0_#601010] hover:translate-y-[3px] transition-all"
+                     hover:shadow-[0_3px_0_#601010] hover:translate-y-0.75 transition-all"
         >
           🚨 Emergency Meeting
         </motion.button>
       </div>
+      )}
 
       {/* Task Modal */}
       {taskModalOpen && activeTask && (

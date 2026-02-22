@@ -165,4 +165,4 @@ function fallbackTask(topic, language, taskId, domain) {
   };
 }
 
-module.exports = { generateTasksForPlayer };
+module.exports = { generateTask, generateTasksForPlayer, fallbackTask };

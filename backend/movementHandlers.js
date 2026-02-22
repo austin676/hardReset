@@ -134,7 +134,7 @@ async function handlePlayerMove(socket, io, data) {
     try { data = JSON.parse(data); } catch (_) { data = {}; }
   }
 
-  const { roomId, x, y, direction } = data || {};
+  const { roomId, x, y, direction, mapId } = data || {};
 
   // --- Guard: required fields -----------------------------------------------
   if (!roomId) {
@@ -188,6 +188,7 @@ async function handlePlayerMove(socket, io, data) {
         socketId:  socket.id,
         position:  { x: bounded.x, y: bounded.y },
         direction: direction ?? 'down',
+        mapId:     mapId ?? 'cafeteria',
       });
 
       // Persist position to DB (fire-and-forget within this async block)

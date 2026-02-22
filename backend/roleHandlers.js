@@ -16,6 +16,7 @@
 const { startRoundTimer } = require('./timerHandlers');
 const { generateTasksForPlayer } = require('./taskGenerator');
 const { getPlayerTopics } = require('./playerTopics');
+const { getHostId } = require('./roomHandlers');
 
 const {
   roomExists,
@@ -83,6 +84,14 @@ async function handleStartGame(socket, io, data) {
     if (!exists) {
       socket.emit('error', { message: `Room "${roomId}" does not exist.` });
       console.warn(`[roleHandlers] startGame rejected — room not found: ${roomId}`);
+      return;
+    }
+
+    // --- Guard: only the host (room creator) can start the game --------------
+    const hostId = getHostId(roomId);
+    if (hostId && socket.id !== hostId) {
+      socket.emit('error', { message: 'Only the room host can start the game.' });
+      console.warn(`[roleHandlers] startGame rejected — not host: ${socket.id} (host: ${hostId}, room: ${roomId})`);
       return;
     }
 

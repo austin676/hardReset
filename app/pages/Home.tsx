@@ -79,7 +79,7 @@ export default function Home() {
           <button onClick={handleJoin}
             className="w-full bg-[#1d8c3a] hover:bg-[#22a844] active:scale-95 transition-all
                        text-white font-black text-lg py-4 rounded-xl tracking-widest uppercase
-                       shadow-[0_4px_0_#0d5020] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-[2px]"
+                       shadow-[0_4px_0_#0d5020] hover:shadow-[0_2px_0_#0d5020] hover:translate-y-0.5"
           >
             Join Room
           </button>
@@ -93,7 +93,7 @@ export default function Home() {
           <button onClick={handleCreate}
             className="w-full bg-[#1a3a8c] hover:bg-[#2040aa] active:scale-95 transition-all
                        text-white font-black text-lg py-4 rounded-xl tracking-widest uppercase
-                       shadow-[0_4px_0_#0a1a50] hover:shadow-[0_2px_0_#0a1a50] hover:translate-y-[2px]"
+                       shadow-[0_4px_0_#0a1a50] hover:shadow-[0_2px_0_#0a1a50] hover:translate-y-0.5"
           >
             Create Room
           </button>

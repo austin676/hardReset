@@ -76,19 +76,20 @@ function buildVoteTally(players) {
 /**
  * resolveVotes
  * Counts votes among alive players, determines the plurality winner,
- * and handles ties (no ejection on a tie).
+ * and handles ties (returns tiedPlayers for duel).
  *
  * Rules:
  *   • 'skip' votes count toward "no ejection" — they don't count for any target.
- *   • Ties (two or more targets share the highest vote count) → no ejection.
+ *   • Ties (two or more targets share the highest vote count) → tiedPlayers returned.
  *   • Single plurality winner → ejected.
  *
  * @param {object[]} players  - Full alive player list (dead players ignored).
  *
  * @returns {{
- *   ejected:    string | null,   // socketId of ejected player, or null
- *   tie:        boolean,
- *   voteCounts: { [targetId: string]: number }
+ *   ejected:      string | null,
+ *   tie:          boolean,
+ *   tiedPlayers:  string[],
+ *   voteCounts:   { [targetId: string]: number }
  * }}
  */
 function resolveVotes(players) {
@@ -105,7 +106,7 @@ function resolveVotes(players) {
 
   // Nobody voted for a real target → no ejection
   if (entries.length === 0) {
-    return { ejected: null, tie: false, voteCounts };
+    return { ejected: null, tie: false, tiedPlayers: [], voteCounts };
   }
 
   // Sort descending by vote count
@@ -113,14 +114,15 @@ function resolveVotes(players) {
 
   const [topId, topCount] = entries[0];
 
-  // Tie check: any second entry with the same count
-  const tie = entries.length > 1 && entries[1][1] === topCount;
-  if (tie) {
-    return { ejected: null, tie: true, voteCounts };
+  // Tie check: collect ALL entries sharing the top vote count
+  const tiedEntries = entries.filter(([, count]) => count === topCount);
+  if (tiedEntries.length > 1) {
+    const tiedPlayers = tiedEntries.map(([id]) => id);
+    return { ejected: null, tie: true, tiedPlayers, voteCounts };
   }
 
   // Single plurality winner
-  return { ejected: topId, tie: false, voteCounts };
+  return { ejected: topId, tie: false, tiedPlayers: [], voteCounts };
 }
 
 // ---------------------------------------------------------------------------

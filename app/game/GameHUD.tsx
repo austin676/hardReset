@@ -515,8 +515,13 @@ export default function GameHUD() {
     });
   };
   const emitMeeting = () => {
-    import("~/game/GameEventBus").then(({ gameEventBus }) => {
-      gameEventBus.emit("meeting:call", {});
+    // Only allow meetings during the 'playing' phase (not during duel/discussion/voting/ejection)
+    const phase = useGameStore.getState().gamePhase;
+    if (phase !== 'playing') return;
+    // Call the backend to start a meeting (which broadcasts meetingStarted to all)
+    import("~/hooks/useSocket").then(({ getSocket }) => {
+      const rc = useGameStore.getState().roomCode;
+      if (rc) getSocket().emit("meetingCalled", { roomId: rc });
     });
   };
 

@@ -28,6 +28,19 @@ const { stopSabotageChecker, clearRoomScores } = require('./taskHandlers');
 const { setPlayerTopics, deletePlayerTopics } = require('./playerTopics');
 
 // ---------------------------------------------------------------------------
+// Host tracking (in-memory)   roomId → hostSocketId
+// ---------------------------------------------------------------------------
+const roomHosts = new Map();
+
+function getHostId(roomId) {
+  return roomHosts.get(roomId) ?? null;
+}
+
+function removeRoomHost(roomId) {
+  roomHosts.delete(roomId);
+}
+
+// ---------------------------------------------------------------------------
 // Internal utility
 // ---------------------------------------------------------------------------
 
@@ -78,6 +91,9 @@ async function handleCreateRoom(socket, io, data) {
 
     // Fetch the persisted player list to confirm
     const players = await getPlayers(roomId);
+
+    // Track the creator as host
+    roomHosts.set(roomId, socket.id);
 
     socket.emit('roomCreated', { roomId, players });
     console.log(`[roomHandlers] roomCreated → ${roomId} | host: ${name} (${socket.id})`);
@@ -176,6 +192,7 @@ async function handleDisconnect(socket, io) {
         stopRoomTimer(roomId);          // cancel round countdown (Module 4)
         stopSabotageChecker(roomId);    // cancel sabotage expiry checker (Module 6)
         clearRoomScores(roomId);        // clear in-memory score cache
+        removeRoomHost(roomId);         // clear host tracking
         await deleteRoom(roomId);
         console.log(`[roomHandlers] Room ${roomId} deleted — no players remaining`);
       } else {
@@ -220,4 +237,6 @@ module.exports = {
   handleJoinRoom,
   handleDisconnect,
   broadcastPlayerList,
+  getHostId,
+  removeRoomHost,
 };
