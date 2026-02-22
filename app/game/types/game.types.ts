@@ -51,6 +51,35 @@ export interface MeetingPlayer {
   votes: number;
 }
 
+// 0=wall, 1=floor, 2=portal, 3=task
+export type TileType = 0 | 1 | 2 | 3;
+
+export type MapTheme = "castle" | "scifi" | "neon";
+
+export interface PortalConfig {
+  tileX: number;
+  tileY: number;
+  targetMap: string;
+  targetTileX: number;
+  targetTileY: number;
+  label: string;
+}
+
+export interface MapConfig {
+  id: string;
+  name: string;
+  theme: MapTheme;
+  trimColor: number;
+  floorColor: number;
+  grid: TileType[][];           // 16×16
+  portals: PortalConfig[];
+  tasks: TaskStationConfig[];
+  spawnX: number;
+  spawnY: number;
+}
+
+export const MAP_SIZE = 16; // each map is 16×16 tiles
+
 export enum GameEvents {
   PLAYER_MOVE = "player:move",
   TASK_INTERACT = "task:interact",
@@ -73,6 +102,7 @@ export enum GameEvents {
   TASK_PROGRESS_UPDATE = "task:progress:update",
   HUD_ROOM_CHANGE = "hud:room:change",
   HUD_NEAR_STATION = "hud:near:station",
+  MAP_CHANGE = "map:change",
 }
 
 export const PLAYER_COLORS: { name: string; hex: number }[] = [

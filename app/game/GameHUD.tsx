@@ -10,16 +10,29 @@ import { useGameStore } from "~/store/gameStore";
 interface TaskItem { id: string; label: string; completed: boolean; }
 
 const ROOMS_DATA = [
-  { id: "codelab", name: "Code Lab", x: 2, y: 4, w: 16, h: 16, color: "#00aaff" },
-  { id: "cafeteria", name: "Cafeteria", x: 28, y: 4, w: 16, h: 16, color: "#ffcc33" },
-  { id: "debugroom", name: "Debug Room", x: 54, y: 4, w: 16, h: 16, color: "#cc66ff" },
+  { id: "debugroom",   name: "Debug Room",   x: 2,  y: 2,  w: 14, h: 14, color: "#cc66ff" },
+  { id: "cafeteria",   name: "Cafeteria",    x: 26, y: 2,  w: 14, h: 14, color: "#ffcc33" },
+  { id: "codelab",     name: "Code Lab",     x: 50, y: 2,  w: 14, h: 14, color: "#00aaff" },
+  { id: "servervault", name: "Server Vault", x: 26, y: 24, w: 14, h: 14, color: "#00e5ff" },
 ];
 const BRIDGES_DATA = [
-  { x: 18, y: 10, w: 10, h: 4 },
-  { x: 44, y: 10, w: 10, h: 4 },
+  { x: 16, y: 7, w: 10, h: 4 },   // debugroom ↔ cafeteria
+  { x: 40, y: 7, w: 10, h: 4 },   // cafeteria ↔ codelab
+  { x: 31, y: 16, w: 4, h: 8 },   // cafeteria ↔ servervault
 ];
-const MAP_W = 72;
-const MAP_H = 24;
+// Task stations per room (tileX/tileY from facilityMap, room grid is 16×16)
+const TASK_STATIONS = [
+  { roomId: "cafeteria",   tileX: 4,  tileY: 4,  label: "Swipe Card" },
+  { roomId: "cafeteria",   tileX: 11, tileY: 11, label: "Fix Wires" },
+  { roomId: "codelab",     tileX: 4,  tileY: 3,  label: "Compile Code" },
+  { roomId: "codelab",     tileX: 12, tileY: 12, label: "Fix Variables" },
+  { roomId: "debugroom",   tileX: 3,  tileY: 4,  label: "Stack Trace" },
+  { roomId: "debugroom",   tileX: 12, tileY: 11, label: "Memory Leak" },
+  { roomId: "servervault", tileX: 4,  tileY: 5,  label: "Patch Firewall" },
+  { roomId: "servervault", tileX: 11, tileY: 10, label: "Flush Cache" },
+];
+const MAP_W = 66;
+const MAP_H = 40;
 const MINIMAP_SIZE = 200;
 
 export default function GameHUD() {
@@ -39,6 +52,12 @@ export default function GameHUD() {
   const scores = useGameStore(s => s.scores);
   const roundNumber = useGameStore(s => s.roundNumber);
   const timeLeft = useGameStore(s => s.timeLeft);
+  const myTasks = useGameStore(s => s.myTasks);
+  const completedTaskIds = useGameStore(s => s.completedTaskIds);
+  const abilityPoints = useGameStore(s => s.abilityPoints);
+
+  // Sorted players by live score for leaderboard
+  const sortedPlayers = [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
 
   // Role reveal banner
   const [roleBanner, setRoleBanner] = useState(false);
@@ -74,6 +93,49 @@ export default function GameHUD() {
   const [submitting, setSubmitting] = useState(false);
   const [puzzleStationId, setPuzzleStationId] = useState("");
   const [loadingPuzzle, setLoadingPuzzle] = useState(false);
+
+  // ── Per-task 60s countdown ─────────────────────────────────────────────────
+  const TASK_TIME_LIMIT = 60;
+  const [taskTimeLeft, setTaskTimeLeft] = useState(TASK_TIME_LIMIT);
+  const taskTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start task countdown when puzzle opens
+  const startTaskTimer = useCallback(() => {
+    if (taskTimerRef.current) clearInterval(taskTimerRef.current);
+    setTaskTimeLeft(TASK_TIME_LIMIT);
+    taskTimerRef.current = setInterval(() => {
+      setTaskTimeLeft(prev => {
+        if (prev <= 1) {
+          if (taskTimerRef.current) clearInterval(taskTimerRef.current);
+          taskTimerRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  const stopTaskTimer = useCallback(() => {
+    if (taskTimerRef.current) clearInterval(taskTimerRef.current);
+    taskTimerRef.current = null;
+  }, []);
+
+  // When timer expires, close puzzle and replace task
+  useEffect(() => {
+    if (taskTimeLeft > 0 || !puzzleOpen) return;
+    // Timer expired — close the puzzle and replace the task
+    (async () => {
+      stopTaskTimer();
+      setPuzzleOpen(false);
+      const { gameEventBus } = await import("~/game/GameEventBus");
+      gameEventBus.emit("task:modal:close", {});
+      // Tell backend to replace this task
+      if (puzzleStationId && roomCode) {
+        const { getSocket } = await import("~/hooks/useSocket");
+        getSocket().emit("taskExpired", { roomId: roomCode, taskId: puzzleStationId });
+      }
+    })();
+  }, [taskTimeLeft, puzzleOpen, puzzleStationId, roomCode, stopTaskTimer]);
 
   // ── Role reveal banner ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -193,10 +255,13 @@ export default function GameHUD() {
     startCooldown(abilityType, COOLDOWN_DURATIONS[abilityType] ?? 30);
   }, [roomCode, startCooldown]);
   useEffect(() => {
-    import("~/game/config/facilityMap").then(({ TASK_STATIONS }) => {
-      setTasks(TASK_STATIONS.map(s => ({ id: s.id, label: s.label, completed: false })));
-    });
-  }, []);
+    if (myTasks.length === 0) return;
+    setTasks(myTasks.map(t => ({
+      id: t.id,
+      label: (t as any).title || `[${(t.domain ?? "task").toUpperCase()}] ${t.prompt.slice(0, 40)}${t.prompt.length > 40 ? "…" : ""}`,
+      completed: completedTaskIds.includes(t.id),
+    })));
+  }, [myTasks, completedTaskIds]);
 
   // ── Open puzzle popup when event fires ────────────────────────────────────
   useEffect(() => {
@@ -208,17 +273,29 @@ export default function GameHUD() {
       setLoadingPuzzle(true);
       setPuzzleOpen(true);
 
-      try {
-        const { fetchTasks } = await import("~/lib/puzzleService");
-        const all = await fetchTasks();
-        // Pick randomly, or use a task that matches the station label domain if possible
-        const pick = all[Math.floor(Math.random() * all.length)];
-        setPuzzle(pick);
-        setPuzzleCode(pick.starterCode);
-      } catch {
-        setPuzzle(null);
-      } finally {
+      // Pick the next uncompleted task from server-assigned myTasks
+      const { myTasks: currentTasks, completedTaskIds: doneIds } = useGameStore.getState();
+      const nextTask = currentTasks.find(t => !doneIds.includes(t.id));
+      if (nextTask) {
+        setPuzzle(nextTask);
+        setPuzzleCode(nextTask.starterCode);
+        setPuzzleStationId(nextTask.id); // use the task id as station id
         setLoadingPuzzle(false);
+        startTaskTimer();
+      } else {
+        // Fallback: fetch from puzzle microservice
+        try {
+          const { fetchTasks } = await import("~/lib/puzzleService");
+          const all = await fetchTasks();
+          const pick = all[Math.floor(Math.random() * all.length)];
+          setPuzzle(pick);
+          setPuzzleCode(pick.starterCode);
+          startTaskTimer();
+        } catch {
+          setPuzzle(null);
+        } finally {
+          setLoadingPuzzle(false);
+        }
       }
     };
     import("~/game/GameEventBus").then(({ gameEventBus }) => {
@@ -226,7 +303,7 @@ export default function GameHUD() {
       bus.on("puzzle:open", onOpenPuzzle);
     });
     return () => { if (bus) bus.off("puzzle:open", onOpenPuzzle); };
-  }, []);
+  }, [startTaskTimer]);
 
   // ── Submit code to puzzle engine ───────────────────────────────────────────
   const submitPuzzle = useCallback(async () => {
@@ -241,8 +318,9 @@ export default function GameHUD() {
       getSocket().emit("recordAttempt", { roomId: roomCode, taskId: puzzle.id, passed: result.passed, userCode: puzzleCode });
       setPuzzleResult(result);
       if (result.passed) {
+        stopTaskTimer();
         // Award points via backend
-        getSocket().emit("taskComplete", { roomId: roomCode, taskId: puzzle.id });
+        getSocket().emit("taskComplete", { roomId: roomCode, stationId: puzzleStationId });
         // Mark station complete in Phaser
         const { gameEventBus } = await import("~/game/GameEventBus");
         gameEventBus.emit("task:complete", { stationId: puzzleStationId });
@@ -257,11 +335,12 @@ export default function GameHUD() {
 
   // ── Close puzzle popup ─────────────────────────────────────────────────────
   const closePuzzle = useCallback(async () => {
+    stopTaskTimer();
     setPuzzleOpen(false);
     const { gameEventBus } = await import("~/game/GameEventBus");
     // Resume movement; if puzzle was already passed, TASK_COMPLETE already resumed
     if (!puzzleResult?.passed) gameEventBus.emit("task:modal:close", {});
-  }, [puzzleResult]);  
+  }, [puzzleResult, stopTaskTimer]);  
 
   // ── Subscribe to gameEventBus ───────────────────────────────────────────────
   useEffect(() => {
@@ -338,12 +417,43 @@ export default function GameHUD() {
       ctx.strokeRect(b.x * scaleX, b.y * scaleY, b.w * scaleX, b.h * scaleY);
     }
 
+    // Task station markers (small diamonds)
+    for (const ts of TASK_STATIONS) {
+      const rm = ROOMS_DATA.find(r => r.id === ts.roomId);
+      if (!rm) continue;
+      const tx = (rm.x + (ts.tileX / 16) * rm.w) * scaleX;
+      const ty = (rm.y + (ts.tileY / 16) * rm.h) * scaleY;
+      // Outer glow
+      ctx.beginPath();
+      ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,170,0,0.2)";
+      ctx.fill();
+      // Diamond shape
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 2.5);
+      ctx.lineTo(tx + 2.5, ty);
+      ctx.lineTo(tx, ty + 2.5);
+      ctx.lineTo(tx - 2.5, ty);
+      ctx.closePath();
+      ctx.fillStyle = "#ffaa00";
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 0.4;
+      ctx.stroke();
+    }
+
     // Player dot with glow
     const main = (window as any).__phaserGame?.scene?.getScene("MainScene") as any;
     if (main?.player) {
       const TILE = 16;
-      const px = (main.player.x / TILE) * scaleX;
-      const py = (main.player.y / TILE) * scaleY;
+      // Map player's local tile position to the minimap world coords
+      const currentMap = main.currentMapId || "cafeteria";
+      const roomDef = ROOMS_DATA.find(r => r.id === currentMap);
+      if (roomDef) {
+        const localTileX = main.player.x / TILE;
+        const localTileY = main.player.y / TILE;
+        const px = (roomDef.x + (localTileX / 16) * roomDef.w) * scaleX;
+        const py = (roomDef.y + (localTileY / 16) * roomDef.h) * scaleY;
 
       // Glow ring
       ctx.beginPath();
@@ -362,6 +472,7 @@ export default function GameHUD() {
       ctx.arc(px, py, 1.2, 0, Math.PI * 2);
       ctx.fillStyle = "#ffffff";
       ctx.fill();
+      } // end roomDef
     }
 
     ctx.restore();
@@ -412,7 +523,136 @@ export default function GameHUD() {
   return (
     <div className="w-full h-full select-none font-mono" style={{ position: "relative" }}>
 
-      {/* ═══════════ ROLE REVEAL BANNER ═══════════ */}
+      {/* ═══════════ TOP-RIGHT — Live Leaderboard (gamified, pixel style) ═══════════ */}
+      <div style={{
+        position: "absolute", top: 56, right: 16,
+        width: 260, zIndex: 100,
+        pointerEvents: "none",
+        background: "linear-gradient(180deg, rgba(10,8,30,0.95) 0%, rgba(5,3,18,0.92) 100%)",
+        border: "2px solid rgba(255,215,0,0.35)",
+        borderRadius: 8,
+        boxShadow: "0 0 20px rgba(255,215,0,0.08), 0 4px 30px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,215,0,0.1)",
+        overflow: "hidden",
+        imageRendering: "pixelated" as any,
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: "10px 16px 8px",
+          borderBottom: "2px solid rgba(255,215,0,0.2)",
+          background: "linear-gradient(90deg, rgba(255,215,0,0.1) 0%, rgba(255,100,0,0.06) 100%)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <span style={{
+            fontSize: 13, fontWeight: 900, letterSpacing: "0.18em",
+            color: "#ffd700",
+            textShadow: "0 0 8px rgba(255,215,0,0.5), 0 2px 0 #000",
+            fontFamily: "'Courier New', monospace",
+          }}>⚔ SCOREBOARD</span>
+          {roundNumber > 0 && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, fontFamily: "'Courier New', monospace",
+              color: "#00fff0", letterSpacing: "0.1em",
+              background: "rgba(0,255,240,0.08)",
+              border: "1px solid rgba(0,255,240,0.2)",
+              borderRadius: 4, padding: "2px 8px",
+              textShadow: "0 0 6px rgba(0,255,240,0.4)",
+            }}>R{roundNumber}/3</span>
+          )}
+        </div>
+
+        {/* Player rows */}
+        <div style={{ padding: "6px 0" }}>
+          {sortedPlayers.length === 0 ? (
+            <div style={{ padding: "14px 16px", fontSize: 11, color: "rgba(148,163,184,0.35)", textAlign: "center", fontFamily: "'Courier New', monospace" }}>Waiting for players…</div>
+          ) : sortedPlayers.map((p, i) => {
+            const score = scores[p.id] ?? 0;
+            const isSelf = p.id === myPlayerId;
+            const colorHex = typeof p.color === "string" ? p.color
+              : `#${(p.color as any).toString(16).padStart(6, "0")}`;
+            const rankColors = ["#ffd700", "#c0c0c0", "#cd7f32"];
+            const rankBg = i < 3 ? `${rankColors[i]}15` : "transparent";
+            const rankBorder = i < 3 ? `${rankColors[i]}30` : "transparent";
+            return (
+              <div key={p.id} style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "7px 16px",
+                margin: "0 6px", borderRadius: 6,
+                background: isSelf ? "rgba(0,255,240,0.08)" : rankBg,
+                border: isSelf ? "1px solid rgba(0,255,240,0.25)" : `1px solid ${rankBorder}`,
+                marginBottom: 3,
+                transition: "all 0.2s",
+              }}>
+                {/* Rank badge */}
+                <div style={{
+                  width: 22, height: 22, borderRadius: 4,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: i < 3 ? `${rankColors[i]}20` : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${i < 3 ? rankColors[i] + "40" : "rgba(255,255,255,0.08)"}`,
+                  flexShrink: 0,
+                }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 900, fontFamily: "'Courier New', monospace",
+                    color: i < 3 ? rankColors[i] : "rgba(148,163,184,0.5)",
+                    textShadow: i < 3 ? `0 0 6px ${rankColors[i]}60` : "none",
+                  }}>{i + 1}</span>
+                </div>
+                {/* Avatar dot */}
+                <div style={{
+                  width: 10, height: 10, borderRadius: 2,
+                  background: colorHex,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  boxShadow: `0 0 6px ${colorHex}60`,
+                  flexShrink: 0,
+                }} />
+                {/* Name */}
+                <span style={{
+                  flex: 1, fontSize: 12, fontFamily: "'Courier New', monospace",
+                  color: isSelf ? "#00fff0" : i === 0 ? "#ffd700" : "#e2e8f0",
+                  fontWeight: 700,
+                  textShadow: isSelf ? "0 0 6px rgba(0,255,240,0.3)" : i === 0 ? "0 0 6px rgba(255,215,0,0.3)" : "none",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  letterSpacing: "0.04em",
+                }}>{p.name}{isSelf ? " ★" : ""}</span>
+                {/* Score with XP badge */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 3,
+                  background: score > 0 ? "rgba(57,255,20,0.08)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${score > 0 ? "rgba(57,255,20,0.2)" : "rgba(255,255,255,0.06)"}`,
+                  borderRadius: 4, padding: "2px 8px",
+                }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 900, fontFamily: "'Courier New', monospace",
+                    color: i === 0 ? "#ffd700" : score > 0 ? "#39ff14" : "rgba(148,163,184,0.3)",
+                    textShadow: i === 0 ? "0 0 8px rgba(255,215,0,0.5)" : score > 0 ? "0 0 4px rgba(57,255,20,0.4)" : "none",
+                  }}>{score}</span>
+                  <span style={{ fontSize: 7, color: "rgba(148,163,184,0.4)", fontFamily: "'Courier New', monospace" }}>XP</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer HP-bar style task progress */}
+        <div style={{
+          padding: "6px 16px 10px",
+          borderTop: "1px solid rgba(255,215,0,0.1)",
+          background: "rgba(0,0,0,0.2)",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 8, fontFamily: "'Courier New', monospace", color: "rgba(148,163,184,0.5)", letterSpacing: "0.1em" }}>TASKS</span>
+            <span style={{ fontSize: 9, fontFamily: "'Courier New', monospace", color: complete ? "#39ff14" : "#00fff0", fontWeight: 700 }}>{done}/{total}</span>
+          </div>
+          <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)" }}>
+            <div style={{
+              height: "100%", borderRadius: 3,
+              width: `${pct}%`,
+              background: complete ? "#39ff14" : "linear-gradient(90deg, #ffd700, #ff6b00)",
+              boxShadow: complete ? "0 0 8px #39ff14" : "0 0 6px rgba(255,107,0,0.5)",
+              transition: "width 0.5s ease",
+            }} />
+          </div>
+        </div>
+      </div>
       {roleBanner && myRole && (
         <div style={{
           position: "absolute", inset: 0, zIndex: 10001,
@@ -560,6 +800,22 @@ export default function GameHUD() {
                   color: "#ffaa00", borderRadius: 4, padding: "2px 10px",
                 }}>{puzzle.language}</span>
               </>)}
+
+              {/* Task countdown timer */}
+              {!puzzleResult?.passed && (
+                <span style={{
+                  fontSize: 12, fontWeight: 900, fontFamily: "monospace",
+                  color: taskTimeLeft <= 10 ? "#ef4444" : taskTimeLeft <= 20 ? "#f97316" : "#00fff0",
+                  letterSpacing: "0.08em",
+                  textShadow: taskTimeLeft <= 10 ? "0 0 10px rgba(239,68,68,0.6)" : "none",
+                  background: taskTimeLeft <= 10 ? "rgba(239,68,68,0.12)" : "rgba(0,255,240,0.06)",
+                  border: `1px solid ${taskTimeLeft <= 10 ? "rgba(239,68,68,0.3)" : "rgba(0,255,240,0.15)"}`,
+                  borderRadius: 6, padding: "3px 10px",
+                  animation: taskTimeLeft <= 10 ? "pulse 0.5s infinite alternate" : "none",
+                }}>
+                  ⏱ {taskTimeLeft}s
+                </span>
+              )}
               <div style={{ flex: 1 }} />
               {/* Submit button */}
               <button onClick={submitPuzzle}
@@ -610,7 +866,7 @@ export default function GameHUD() {
                 ) : puzzle ? (
                   <div style={{ padding: "26px 28px 36px" }}>
                     <h2 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 800, color: "#e6edf3", lineHeight: 1.3 }}>
-                      {puzzle.id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                      {(puzzle as any).title || puzzle.id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
                     </h2>
                     <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
                       <span style={{
@@ -799,69 +1055,100 @@ export default function GameHUD() {
         </div>
       )}
 
-      {/* ═══════════ TOP — Room name + round + timer + progress pill ═══════════ */}
-      <div
-        style={{
-          position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)",
-          pointerEvents: "none",
-          background: "rgba(8, 12, 20, 0.65)",
-          backdropFilter: "blur(8px)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 24, padding: "6px 20px",
-          display: "flex", alignItems: "center", gap: 12,
-        }}
-      >
-        {/* Room name */}
-        <span style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: "0.15em",
-          textTransform: "uppercase", color: "#94a3b8",
-        }}>
-          {room}
-        </span>
-
-        {/* Round indicator */}
-        {roundNumber > 0 && (
-          <>
-            <div style={{ width: 1, height: 12, background: "rgba(255,255,255,0.12)" }} />
-            <span style={{ fontSize: 10, fontWeight: 700, color: "#00fff0", letterSpacing: "0.1em" }}>
-              R{roundNumber}/3
-            </span>
-            {/* Timer */}
-            <span style={{
-              fontSize: 11, fontWeight: 900, fontFamily: "monospace",
-              color: timeLeft <= 30 ? "#ef4444" : timeLeft <= 60 ? "#f97316" : "#94a3b8",
-              letterSpacing: "0.08em",
-              textShadow: timeLeft <= 30 ? "0 0 10px rgba(239,68,68,0.6)" : "none",
-            }}>
-              {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
-            </span>
-          </>
-        )}
-
-        {/* Mini progress bar */}
-        <div style={{
-          width: 100, height: 4, borderRadius: 4,
-          background: "rgba(255,255,255,0.08)",
-          overflow: "hidden",
-        }}>
+      {/* ═══════════ TOP — Full-width game navbar ═══════════ */}
+      {(() => {
+        const ROUND_DURATION = 180; // 3 minutes per round
+        const timerPct = roundNumber > 0 ? Math.max(0, Math.min(100, (timeLeft / ROUND_DURATION) * 100)) : 100;
+        const timerColor = timeLeft <= 30 ? "#ef4444" : timeLeft <= 60 ? "#f97316" : "#00fff0";
+        return (
           <div style={{
-            width: `${pct}%`, height: "100%", borderRadius: 4,
-            background: complete
-              ? "#39ff14"
-              : "linear-gradient(90deg, #00c6ff, #00fff0)",
-            boxShadow: complete ? "0 0 6px #39ff14" : "0 0 4px #00fff066",
-            transition: "width 0.5s ease",
-          }} />
-        </div>
+            position: "absolute", top: 0, left: 0, right: 0,
+            height: 46, zIndex: 110,
+            pointerEvents: "none",
+            background: "linear-gradient(180deg, rgba(5,3,18,0.95) 0%, rgba(5,3,18,0.7) 80%, transparent 100%)",
+            borderBottom: "1px solid rgba(255,215,0,0.12)",
+            display: "flex", alignItems: "center",
+            padding: "0 20px",
+            fontFamily: "'Courier New', monospace",
+          }}>
+            {/* LEFT — Round indicator */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 160 }}>
+              {roundNumber > 0 ? (
+                <>
+                  <div style={{
+                    background: "rgba(0,255,240,0.08)",
+                    border: "1px solid rgba(0,255,240,0.25)",
+                    borderRadius: 4, padding: "3px 12px",
+                  }}>
+                    <span style={{
+                      fontSize: 13, fontWeight: 900, letterSpacing: "0.15em",
+                      color: "#00fff0",
+                      textShadow: "0 0 8px rgba(0,255,240,0.4), 0 1px 0 #000",
+                    }}>ROUND {roundNumber}</span>
+                  </div>
+                  {/* Timer with reducing bar */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      fontSize: 14, fontWeight: 900,
+                      color: timerColor,
+                      textShadow: timeLeft <= 30 ? "0 0 10px rgba(239,68,68,0.6)" : "0 0 6px rgba(0,255,240,0.3)",
+                      letterSpacing: "0.08em",
+                      animation: timeLeft <= 10 ? "pulse 0.5s infinite alternate" : "none",
+                    }}>
+                      {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+                    </span>
+                    <div style={{
+                      width: 100, height: 6, borderRadius: 3,
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                      overflow: "hidden",
+                    }}>
+                      <div style={{
+                        height: "100%", borderRadius: 3,
+                        width: `${timerPct}%`,
+                        background: timeLeft <= 30
+                          ? "linear-gradient(90deg, #ef4444, #ff6b6b)"
+                          : timeLeft <= 60
+                            ? "linear-gradient(90deg, #f97316, #fbbf24)"
+                            : "linear-gradient(90deg, #00fff0, #00aaff)",
+                        boxShadow: `0 0 6px ${timerColor}60`,
+                        transition: "width 1s linear",
+                      }} />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <span style={{ fontSize: 11, color: "rgba(148,163,184,0.4)", letterSpacing: "0.1em" }}>PRE-GAME</span>
+              )}
+            </div>
 
-        {/* Count */}
-        <span style={{
-          fontSize: 10, fontWeight: 700, whiteSpace: "nowrap",
-          color: complete ? "#39ff14" : "#00fff0",
-        }}>
-          {complete ? "✓" : `${done}/${total}`}
-        </span>
-      </div>
+            {/* CENTER — Location */}
+            <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 6, padding: "4px 16px",
+              }}>
+                <span style={{
+                  fontSize: 8, color: "rgba(148,163,184,0.5)", letterSpacing: "0.15em",
+                }}>LOC</span>
+                <span style={{
+                  fontSize: 13, fontWeight: 900, letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "#e2e8f0",
+                  textShadow: "0 1px 0 #000",
+                }}>
+                  {room}
+                </span>
+              </div>
+            </div>
+
+            {/* RIGHT — spacer to balance */}
+            <div style={{ minWidth: 160 }} />
+          </div>
+        );
+      })()}
 
       {/* ═══════════ BOTTOM-LEFT — Circular minimap ═══════════ */}
       <div
@@ -1171,83 +1458,157 @@ export default function GameHUD() {
       )}
 
       {/* ═══════════ IMPOSTER ABILITY HUD ═══════════ */}
-      {myRole === "imposter" && (
-        <div style={{
-          position: "absolute", bottom: 80, right: 20,
-          width: 230, zIndex: 100, pointerEvents: "auto",
-          background: "rgba(20,4,4,0.88)",
-          backdropFilter: "blur(8px)",
-          border: "1px solid rgba(239,68,68,0.3)",
-          borderRadius: 10,
-          boxShadow: "0 0 30px rgba(239,68,68,0.1)",
-          overflow: "hidden",
-        }}>
-          {/* Header */}
-          <div style={{
-            padding: "8px 14px",
-            borderBottom: "1px solid rgba(239,68,68,0.2)",
-            background: "rgba(239,68,68,0.07)",
-            display: "flex", alignItems: "center", gap: 8,
-          }}>
-            <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: "0.2em", color: "#ef4444" }}>⚡ IMPOSTER ARSENAL</span>
-          </div>
+      {myRole === "imposter" && (() => {
+        const ABILITIES = [
+          { id: "time_bomb",       icon: "💣", label: "Time Bomb",       desc: "20s countdown on ALL crewmates",  cd: 40, unlockAt: 0   },
+          { id: "code_delay",      icon: "⏸",  label: "Code Delay",      desc: "Freeze all inputs for 8s",       cd: 30, unlockAt: 50  },
+          { id: "syntax_scramble", icon: "🔀", label: "Syntax Scramble", desc: "Shuffle task queue for everyone", cd: 50, unlockAt: 100 },
+        ];
+        const nextLock = ABILITIES.filter(a => a.unlockAt > abilityPoints).sort((a, b) => a.unlockAt - b.unlockAt)[0];
+        const progressPct = nextLock ? Math.min(100, Math.round((abilityPoints / nextLock.unlockAt) * 100)) : 100;
 
-          {/* Abilities — single click to fire on ALL crewmates */}
-          {[
-            { id: "time_bomb",       icon: "💣", label: "Time Bomb",       desc: "20s countdown on ALL", cd: 40 },
-            { id: "code_delay",      icon: "⏸",  label: "Code Delay",      desc: "Freeze all inputs 8s", cd: 30 },
-            { id: "syntax_scramble", icon: "🔀", label: "Syntax Scramble", desc: "Shuffle all tasks",    cd: 50 },
-          ].map(({ id, icon, label, desc, cd }) => {
-            const onCd = (cooldowns[id] ?? 0) > 0;
-            return (
-              <button
-                key={id}
-                onClick={() => !onCd && fireAbility(id)}
-                disabled={onCd}
-                style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 10,
-                  padding: "9px 14px",
-                  background: "transparent",
-                  border: "none", borderBottom: "1px solid rgba(239,68,68,0.08)",
-                  cursor: onCd ? "default" : "pointer",
-                  opacity: onCd ? 0.45 : 1,
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={e => { if (!onCd) e.currentTarget.style.background = "rgba(239,68,68,0.12)"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-              >
-                <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", letterSpacing: "0.06em" }}>{label}</div>
-                  <div style={{ fontSize: 8, color: "rgba(148,163,184,0.4)", marginTop: 1 }}>
-                    {onCd ? `⟳ ${cooldowns[id]}s` : desc}
-                  </div>
+        return (
+          <div style={{
+            position: "absolute", bottom: 230, left: 20,
+            width: 240, zIndex: 100, pointerEvents: "auto",
+            background: "rgba(15,3,3,0.92)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid rgba(239,68,68,0.35)",
+            borderRadius: 10,
+            boxShadow: "0 0 30px rgba(239,68,68,0.12)",
+            overflow: "hidden",
+          }}>
+
+            {/* Header — title + SP counter */}
+            <div style={{
+              padding: "8px 14px",
+              borderBottom: "1px solid rgba(239,68,68,0.2)",
+              background: "rgba(239,68,68,0.08)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: "0.2em", color: "#ef4444" }}>⚡ IMPOSTOR ARSENAL</span>
+              <span style={{
+                fontSize: 9, fontWeight: 700, fontFamily: "monospace",
+                color: "#fbbf24",
+                background: "rgba(251,191,36,0.1)",
+                border: "1px solid rgba(251,191,36,0.3)",
+                borderRadius: 4, padding: "1px 6px",
+              }}>{abilityPoints} SP</span>
+            </div>
+
+            {/* Progress bar towards next unlock */}
+            {nextLock && (
+              <div style={{ padding: "7px 14px 8px", borderBottom: "1px solid rgba(239,68,68,0.1)", background: "rgba(0,0,0,0.2)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 8, color: "rgba(148,163,184,0.5)", letterSpacing: "0.05em" }}>NEXT UNLOCK</span>
+                  <span style={{ fontSize: 8, fontFamily: "monospace", color: "#fbbf24" }}>
+                    {abilityPoints}/{nextLock.unlockAt} SP
+                  </span>
                 </div>
-                {onCd ? (
-                  <div style={{ width: 28, height: 28, position: "relative" }}>
-                    <svg viewBox="0 0 28 28" style={{ transform: "rotate(-90deg)" }}>
-                      <circle cx="14" cy="14" r="10" fill="none" stroke="rgba(239,68,68,0.15)" strokeWidth="2" />
-                      <circle cx="14" cy="14" r="10" fill="none" stroke="#ef4444" strokeWidth="2"
-                        strokeDasharray={`${(1 - cooldowns[id] / cd) * 62.8} 62.8`}
-                        strokeLinecap="round" />
-                    </svg>
+                <div style={{ height: 3, borderRadius: 2, background: "rgba(239,68,68,0.15)", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 2,
+                    width: `${progressPct}%`,
+                    background: "linear-gradient(90deg, #ef4444, #fbbf24)",
+                    transition: "width 0.5s ease",
+                    boxShadow: "0 0 6px rgba(251,191,36,0.6)",
+                  }} />
+                </div>
+                <div style={{ marginTop: 4, fontSize: 7, color: "rgba(251,191,36,0.8)", letterSpacing: "0.04em" }}>
+                  🔒 {nextLock.unlockAt - abilityPoints} SP to unlock {nextLock.label}
+                </div>
+              </div>
+            )}
+
+            {/* Ability rows */}
+            {ABILITIES.map(({ id, icon, label, desc, cd, unlockAt }) => {
+              const unlocked = abilityPoints >= unlockAt;
+              const onCd = unlocked && (cooldowns[id] ?? 0) > 0;
+
+              if (!unlocked) {
+                // Locked ability — shows progress towards this specific tier
+                const tierPct = Math.min(100, Math.round((abilityPoints / unlockAt) * 100));
+                return (
+                  <div key={id} style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "9px 14px",
+                    borderBottom: "1px solid rgba(239,68,68,0.06)",
+                    opacity: 0.55,
+                    cursor: "not-allowed",
+                  }}>
+                    <span style={{ fontSize: 16, lineHeight: 1, filter: "grayscale(1)" }}>{icon}</span>
+                    <div style={{ flex: 1, textAlign: "left" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(148,163,184,0.5)", letterSpacing: "0.06em" }}>{label}</div>
+                      <div style={{ fontSize: 8, color: "rgba(148,163,184,0.3)", marginTop: 1 }}>{desc}</div>
+                      <div style={{ marginTop: 4, height: 2, borderRadius: 1, background: "rgba(239,68,68,0.1)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${tierPct}%`, background: "rgba(239,68,68,0.4)", borderRadius: 1, transition: "width 0.5s" }} />
+                      </div>
+                    </div>
                     <span style={{
-                      position: "absolute", inset: 0, display: "flex",
-                      alignItems: "center", justifyContent: "center",
-                      fontSize: 7, color: "#ef4444", fontFamily: "monospace",
-                    }}>{cooldowns[id]}</span>
+                      fontSize: 7, color: "rgba(148,163,184,0.4)", fontFamily: "monospace",
+                      border: "1px solid rgba(148,163,184,0.15)", borderRadius: 4, padding: "2px 5px",
+                      whiteSpace: "nowrap",
+                    }}>🔒 {unlockAt} SP</span>
                   </div>
-                ) : (
-                  <span style={{
-                    fontSize: 8, color: "#ef4444", fontFamily: "monospace",
-                    border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, padding: "2px 6px",
-                  }}>FIRE</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+                );
+              }
+
+              // Unlocked ability
+              return (
+                <button
+                  key={id}
+                  onClick={() => !onCd && fireAbility(id)}
+                  disabled={onCd}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 10,
+                    padding: "9px 14px",
+                    background: "transparent",
+                    border: "none", borderBottom: "1px solid rgba(239,68,68,0.08)",
+                    cursor: onCd ? "default" : "pointer",
+                    opacity: onCd ? 0.45 : 1,
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={e => { if (!onCd) e.currentTarget.style.background = "rgba(239,68,68,0.12)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", letterSpacing: "0.06em" }}>
+                      {label}
+                      {unlockAt > 0 && <span style={{ fontSize: 7, color: "#22c55e", marginLeft: 5, letterSpacing: 0 }}>✓ UNLOCKED</span>}
+                    </div>
+                    <div style={{ fontSize: 8, color: "rgba(148,163,184,0.4)", marginTop: 1 }}>
+                      {onCd ? `⟳ ${cooldowns[id]}s` : desc}
+                    </div>
+                  </div>
+                  {onCd ? (
+                    <div style={{ width: 28, height: 28, position: "relative", flexShrink: 0 }}>
+                      <svg viewBox="0 0 28 28" style={{ transform: "rotate(-90deg)" }}>
+                        <circle cx="14" cy="14" r="10" fill="none" stroke="rgba(239,68,68,0.15)" strokeWidth="2" />
+                        <circle cx="14" cy="14" r="10" fill="none" stroke="#ef4444" strokeWidth="2"
+                          strokeDasharray={`${(1 - cooldowns[id] / cd) * 62.8} 62.8`}
+                          strokeLinecap="round" />
+                      </svg>
+                      <span style={{
+                        position: "absolute", inset: 0, display: "flex",
+                        alignItems: "center", justifyContent: "center",
+                        fontSize: 7, color: "#ef4444", fontFamily: "monospace",
+                      }}>{cooldowns[id]}</span>
+                    </div>
+                  ) : (
+                    <span style={{
+                      fontSize: 8, color: "#ef4444", fontFamily: "monospace",
+                      border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, padding: "2px 6px",
+                      flexShrink: 0,
+                    }}>FIRE</span>
+                  )}
+                </button>
+              );
+            })}
+
+          </div>
+        );
+      })()}
 
     </div>
   );

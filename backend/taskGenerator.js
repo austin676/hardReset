@@ -36,16 +36,19 @@ const DEFAULT_TOPIC = { domain: 'dsa', language: 'python' };
  * Build prompt asking Groq for one task.
  */
 function buildTaskPrompt(topic, language) {
-  return `Generate a short beginner-to-intermediate coding task about "${topic}" in ${language}.
+  return `Generate a coding task about "${topic}" in ${language}.
 
 REQUIREMENTS:
+- The task MUST be specifically about ${topic}. For example if the topic is "Arrays", the task must involve array operations like sorting, filtering, mapping, etc.
 - The task MUST be solvable by printing a single hardcoded output line (no user input).
 - The starter code must contain a function or class with TODO comments. The last line must print the result.
 - The expected output must be a single line of text — the exact stdout when the solution is complete.
-- Keep the task simple enough to solve in 2-5 minutes.
+- Keep the task solvable in under 1 minute.
+- Include a short 2-5 word title summarising the problem (e.g. "Reverse Array In-Place", "Binary Tree Height").
 
 Respond with ONLY valid JSON (no markdown, no explanation) in exactly this shape:
 {
+  "title": "Short 2-5 word problem name",
   "prompt": "One sentence describing what the player must implement.",
   "starterCode": "# complete starter code with TODO placeholders\\nprint(solution())",
   "expectedOutput": "exact single line output"
@@ -105,6 +108,7 @@ async function generateTask(topic, language, taskId) {
       id:             taskId,
       domain:         meta.domain,
       language:       lang,
+      title:          parsed.title || `${topic} Task`,
       prompt:         parsed.prompt,
       starterCode:    parsed.starterCode,
       expectedOutput: parsed.expectedOutput,
@@ -123,7 +127,7 @@ async function generateTask(topic, language, taskId) {
  * @param {number}   count           - how many tasks to generate
  * @returns {Promise<object[]>}
  */
-async function generateTasksForPlayer(topics, socketId, count = 2) {
+async function generateTasksForPlayer(topics, socketId, count = 10) {
   // Pick `count` topics (cycle if fewer selected than needed)
   const pool = topics && topics.length > 0 ? topics : ['Arrays', 'Strings'];
   const chosen = [];
@@ -152,6 +156,7 @@ function fallbackTask(topic, language, taskId, domain) {
     id:          taskId,
     domain,
     language,
+    title:       `${topic} Basics`,
     prompt:      `Write a function related to ${topic} that returns the number 42.`,
     starterCode: isPython
       ? `def solve():\n    # TODO: return 42\n    pass\n\nprint(solve())`

@@ -52,9 +52,12 @@ export default function PhaserGame() {
       bus.on("player:move", ({ x, y, direction }: { x: number; y: number; direction: string }) => {
         const rc = useGameStore.getState().roomCode;
         if (!rc) return;
+        // Include the current map so other clients know which room we're in
+        const mainScene = (window as any).__phaserGame?.scene?.getScene("MainScene") as any;
+        const mapId = mainScene?.currentMapId ?? "cafeteria";
         import("~/hooks/useSocket").then(({ getSocket }) => {
           const sock = getSocket();
-          if (sock?.connected) sock.emit("playerMove", { roomId: rc, x, y, direction });
+          if (sock?.connected) sock.emit("playerMove", { roomId: rc, x, y, direction, mapId });
         });
       });
 

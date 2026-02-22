@@ -19,6 +19,7 @@ export interface Task {
   id: string;
   domain: "oops" | "dsa" | "frontend" | string;
   language: "python" | "javascript";
+  title?: string;
   prompt: string;
   starterCode: string;
   expectedOutput?: string;  // present for LLM-generated tasks

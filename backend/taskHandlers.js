@@ -52,6 +52,8 @@ const {
   removeExpiredFromMap,
 } = require('./sabotageUtils');
 
+const { getPlayerTopics } = require('./playerTopics');
+const { generateTasksForPlayer } = require('./taskGenerator');
 const { applyTimeout } = require('./timerHandlers');
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,21 @@ const sabotageCheckers = {};
 
 // How often (ms) to poll for expired sabotages.
 const EXPIRY_CHECK_INTERVAL_MS = 5_000;
+
+// ---------------------------------------------------------------------------
+// In-memory room score tracker — avoids DB round-trips on every task completion
+// { [roomId]: { [socketId]: number } }
+// ---------------------------------------------------------------------------
+const roomScores = new Map();
+
+/**
+ * getOrInitScores — returns the mutable score object for a room,
+ * creating it if it doesn't exist yet.
+ */
+function getOrInitScores(roomId) {
+  if (!roomScores.has(roomId)) roomScores.set(roomId, {});
+  return roomScores.get(roomId);
+}
 
 // ---------------------------------------------------------------------------
 // startSabotageChecker (internal)
@@ -294,9 +311,16 @@ async function handleTaskComplete(socket, io, data) {
         taskProgress:   newProgress,
       });
 
+      // Update in-memory scores (no DB read required — fast and reliable)
+      const scores = getOrInitScores(roomId);
+      scores[socket.id] = (scores[socket.id] ?? 0) + 100;
+
+      // Broadcast live score update so the leaderboard refreshes for all players
+      io.to(roomId).emit('scoreUpdate', { scores: { ...scores } });
+
       console.log(
         `[taskHandlers] Task completed (crewmate) — ${player.name} | ` +
-        `station: ${stationId} | room progress: ${newProgress}`
+        `station: ${stationId} | room progress: ${newProgress} | score: ${scores[socket.id]}`
       );
       return;
     }
@@ -313,9 +337,15 @@ async function handleTaskComplete(socket, io, data) {
       sabotagePoints: updatedPlayer.sabotagePoints,
     });
 
+    // Give impostor a fake visible score so they blend into the leaderboard
+    // (otherwise their 0 score would immediately reveal them)
+    const scores = getOrInitScores(roomId);
+    scores[socket.id] = (scores[socket.id] ?? 0) + 100;
+    io.to(roomId).emit('scoreUpdate', { scores: { ...scores } });
+
     console.log(
       `[taskHandlers] Fake task (impostor) — ${player.name} | ` +
-      `+${SABOTAGE_POINTS_PER_TASK} pt(s) → total: ${updatedPlayer.sabotagePoints}`
+      `+${SABOTAGE_POINTS_PER_TASK} pt(s) → total: ${updatedPlayer.sabotagePoints} | fake score: ${scores[socket.id]}`
     );
   } catch (err) {
     console.error(`[taskHandlers] taskComplete error:`, err.message);
@@ -482,7 +512,28 @@ function registerTaskHandlers(socket, io) {
   socket.on('taskInteract',  (data) => handleTaskInteract(socket, io, data));
   socket.on('taskComplete',  (data) => handleTaskComplete(socket, io, data));
   socket.on('sabotage',      (data) => handleSabotage(socket, io, data));
+  socket.on('taskExpired',   (data) => handleTaskExpired(socket, io, data));
   console.log(`[taskHandlers] Handlers registered for socket: ${socket.id}`);
+}
+
+// ---------------------------------------------------------------------------
+// handleTaskExpired — player ran out of time on a task, generate a replacement
+// ---------------------------------------------------------------------------
+async function handleTaskExpired(socket, io, data) {
+  const { roomId, taskId } = data || {};
+  if (!roomId || !taskId) return;
+
+  try {
+    const topics = getPlayerTopics(socket.id);
+    const replacementId = `replaced_${socket.id.slice(-6)}_${Date.now().toString(36)}`;
+    const [newTask] = await generateTasksForPlayer(topics, socket.id, 1);
+    newTask.id = replacementId;
+
+    socket.emit('taskReplaced', { oldTaskId: taskId, newTask });
+    console.log(`[taskHandlers] Task expired → replaced ${taskId} with ${replacementId} for ${socket.id}`);
+  } catch (err) {
+    console.error(`[taskHandlers] taskExpired error:`, err.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -494,5 +545,6 @@ module.exports = {
   handleTaskInteract,
   handleTaskComplete,
   handleSabotage,
-  stopSabotageChecker, // called by roomHandlers on room deletion
+  stopSabotageChecker,   // called by roomHandlers on room deletion
+  clearRoomScores: (roomId) => roomScores.delete(roomId), // memory cleanup
 };

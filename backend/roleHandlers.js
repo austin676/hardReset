@@ -14,6 +14,8 @@
  */
 
 const { startRoundTimer } = require('./timerHandlers');
+const { generateTasksForPlayer } = require('./taskGenerator');
+const { getPlayerTopics } = require('./playerTopics');
 
 const {
   roomExists,
@@ -187,6 +189,31 @@ async function handleStartGame(socket, io, data) {
     // 8. Start the server-authoritative round timer (Module 4)
     // -------------------------------------------------------------------------
     startRoundTimer(roomId, io);
+
+    // -------------------------------------------------------------------------
+    // 9. Generate 10 personalised coding tasks per player (async, non-blocking)
+    //    Each player receives tasks based on their chosen topics from Login.
+    // -------------------------------------------------------------------------
+    (async () => {
+      try {
+        const totalPerPlayer = 10;
+        for (const player of players) {
+          const topics = getPlayerTopics(player.socketId);
+          console.log(`[roleHandlers] Generating ${totalPerPlayer} tasks for ${player.name} (topics: ${topics.join(', ')})`);
+          const taskList = await generateTasksForPlayer(topics, player.socketId, totalPerPlayer);
+          io.to(player.socketId).emit('tasksAssigned', {
+            myTasks: taskList,
+            totalRoomTasks: totalPerPlayer,
+            roomCompletedTasks: 0,
+            roundNumber: 1,
+            players: safePlayerList,
+          });
+          console.log(`[roleHandlers] tasksAssigned → ${player.name}: ${taskList.length} tasks`);
+        }
+      } catch (err) {
+        console.error(`[roleHandlers] Task generation error:`, err.message);
+      }
+    })();
 
     console.log(
       `[roleHandlers] gameStarted broadcast → room: ${roomId} | ` +
