@@ -4,6 +4,7 @@ import { useSocket } from "~/hooks/useSocket";
 
 const GameHUD = lazy(() => import("./GameHUD"));
 const MeetingOverlay = lazy(() => import("~/components/MeetingOverlay"));
+const EjectionScreen = lazy(() => import("~/components/EjectionScreen"));
 
 // ─── PhaserGame ───
 // Client‑only React component that mounts a Phaser canvas and
@@ -143,6 +144,7 @@ export default function PhaserGame() {
             <GameHUD />
           </div>
           <MeetingOverlay />
+          <EjectionScreen />
         </Suspense>
       )}
     </div>

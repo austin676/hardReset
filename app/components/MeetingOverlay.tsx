@@ -185,7 +185,6 @@ export default function MeetingOverlay() {
   if (
     gamePhase !== 'discussion' &&
     gamePhase !== 'voting' &&
-    gamePhase !== 'ejection' &&
     gamePhase !== 'duel'
   ) {
     return null

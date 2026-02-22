@@ -5,7 +5,10 @@ import { useGameStore } from '../store/gameStore'
 import Crewmate from './Crewmate'
 
 export default function EjectionScreen() {
-  const { ejectedPlayer, wasImposter, gamePhase, setGamePhase } = useGameStore()
+  const {
+    ejectedPlayer, wasImposter, gamePhase, setGamePhase,
+    setMeetingResults, setMeetingCallerName,
+  } = useGameStore()
   const navigate = useNavigate()
 
   // Animation sequence state
@@ -14,8 +17,18 @@ export default function EjectionScreen() {
   const [showText, setShowText] = useState(false)
   const [showRoleReveal, setShowRoleReveal] = useState(false)
 
+  // Reset animation states when entering ejection phase
   useEffect(() => {
-    if (!ejectedPlayer) return
+    if (gamePhase === 'ejection') {
+      setShowParticles(false)
+      setShowSpaceship(false)
+      setShowText(false)
+      setShowRoleReveal(false)
+    }
+  }, [gamePhase])
+
+  useEffect(() => {
+    if (gamePhase !== 'ejection' || !ejectedPlayer) return
 
     const sequences = [
       { delay: 200, action: () => setShowParticles(true) },
@@ -29,17 +42,31 @@ export default function EjectionScreen() {
     )
 
     const finalTimeout = setTimeout(() => {
-      if (gamePhase === 'results') navigate('/results')
-      else setGamePhase('playing')
+      const { gamePhase: phase } = useGameStore.getState()
+      if (phase !== 'ejection') return
+      // Clean up meeting state
+      setMeetingResults(null)
+      setMeetingCallerName(null)
+      // Navigate or resume
+      if (phase === 'results') {
+        navigate('/results')
+      } else {
+        setGamePhase('playing')
+        // Resume Phaser scene
+        import('~/game/GameEventBus').then(({ gameEventBus }) => {
+          gameEventBus.emit('meeting:end', {})
+        })
+      }
     }, 6000)
 
     return () => {
       timeouts.forEach(clearTimeout)
       clearTimeout(finalTimeout)
     }
-  }, [ejectedPlayer, gamePhase, navigate, setGamePhase])
+  }, [gamePhase, ejectedPlayer, navigate, setGamePhase, setMeetingResults, setMeetingCallerName])
 
-  if (!ejectedPlayer) return null
+  // Only show during ejection phase with an ejected player
+  if (gamePhase !== 'ejection' || !ejectedPlayer) return null
 
   return (
     <motion.div

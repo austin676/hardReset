@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router'
 import { useGameStore } from '../store/gameStore'
 import { useSocket } from '../hooks/useSocket'
@@ -14,6 +14,13 @@ export default function Lobby() {
   const isHost = players.length > 0 && players[0]?.id === myPlayerId
   const canStart = players.length >= 2
 
+  // Navigate to game screen when game starts
+  useEffect(() => {
+    const onGameStarted = () => navigate('/game')
+    window.addEventListener('socket:gameStarted', onGameStarted)
+    return () => window.removeEventListener('socket:gameStarted', onGameStarted)
+  }, [navigate])
+
   const handleCopy = () => {
     if (!roomCode) return
     navigator.clipboard.writeText(roomCode).then(() => {
@@ -22,44 +29,51 @@ export default function Lobby() {
     })
   }
 
-  // Navigate to game screen when game starts
-  useEffect(() => {
-    const onGameStarted = () => navigate('/game')
-    window.addEventListener('socket:gameStarted', onGameStarted)
-    return () => window.removeEventListener('socket:gameStarted', onGameStarted)
-  }, [navigate])
-
   return (
     <div className="min-h-screen bg-[#10122a] flex items-center justify-center px-4">
-      <div className="max-w-md w-full text-center space-y-6">
-        {/* Room code */}
-        <div>
-          <p className="text-[#9090b0] text-xs font-black tracking-widest uppercase mb-2">Share This Code</p>
-          <div className="bg-[#1a1c3a] border-4 border-[#e8c030] rounded-2xl px-8 py-5 inline-block
+      <div className="max-w-lg w-full text-center space-y-6">
+        {/* Room code + copy button side by side */}
+        <div className="flex items-center justify-center gap-4">
+          <div className="bg-[#1a1c3a] border-4 border-[#e8c030] rounded-2xl px-10 py-6
                           shadow-[0_0_30px_#e8c03033]">
-            <span className="text-[#e8c030] text-5xl font-black tracking-[0.5em]">
+            <p className="text-[#9090b0] text-[10px] font-black tracking-widest uppercase mb-1">Room Code</p>
+            <span className="text-[#e8c030] text-6xl font-black tracking-[0.6em] select-all">
               {roomCode}
             </span>
           </div>
-          <motion.button
-            whileTap={{ scale: 0.9 }}
+          <button
             onClick={handleCopy}
-            className="mt-3 mx-auto flex items-center gap-2 px-5 py-2 rounded-xl
-                       bg-[#1a1c3a] border-2 border-[#2e3060] text-[#9090b0] text-xs font-black
-                       tracking-widest uppercase hover:border-[#e8c030] hover:text-[#e8c030]
-                       transition-all cursor-pointer"
+            className="shrink-0 px-5 py-4 rounded-2xl font-black text-sm uppercase tracking-widest
+                       transition-all active:scale-95
+                       bg-[#e8c030] text-[#10122a] hover:bg-[#f0d060]
+                       shadow-[0_4px_0_#a08010] hover:shadow-[0_2px_0_#a08010] hover:translate-y-0.5"
+            title="Copy room code"
           >
-            {copied ? '✓ Copied!' : '📋 Copy Code'}
-          </motion.button>
+            <AnimatePresence mode="wait">
+              {copied ? (
+                <motion.span key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                  className="flex flex-col items-center gap-1">
+                  <span className="text-lg">✓</span>
+                  <span>Copied</span>
+                </motion.span>
+              ) : (
+                <motion.span key="copy" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                  className="flex flex-col items-center gap-1">
+                  <span className="text-lg">📋</span>
+                  <span>Copy</span>
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
         </div>
 
-        {/* Player slots */}
-        <div className="bg-[#1a1c3a] border-4 border-[#2e3060] rounded-2xl p-6">
+        {/* Player slots — uniform cards */}
+        <div className="bg-[#1a1c3a] border-4 border-[#2e3060] rounded-2xl p-8">
           <p className="text-[#9090b0] text-xs font-black tracking-widest uppercase mb-5">
             Players — {players.length} / 4
           </p>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             {Array.from({ length: 4 }).map((_, i) => {
               const player = players[i]
               return (
@@ -68,20 +82,18 @@ export default function Lobby() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.1 }}
-                  className={`flex items-center gap-3 p-3 rounded-xl border-2 ${
-                    player ? 'border-[#2e3060] bg-[#10122a]' : 'border-dashed border-[#222440] opacity-40'
-                  }`}
+                  className="flex items-center gap-4 px-5 py-5 rounded-2xl border-2 border-[#2e3060] bg-[#10122a] h-24"
                 >
                   {player
-                    ? <Crewmate color={player.color} size={36} />
-                    : <div className="w-9 h-9 rounded-full bg-[#1a1c3a] border-2 border-dashed border-[#2e3060]" />}
+                    ? <Crewmate color={player.color} size={48} />
+                    : <div className="w-12 h-12 rounded-full bg-[#1a1c3a] border-2 border-dashed border-[#2e3060] shrink-0" />}
                   <div className="text-left min-w-0">
-                    <p className="text-white font-black text-sm truncate">
+                    <p className={`font-black text-base truncate ${player ? 'text-white' : 'text-[#40405a]'}`}>
                       {player ? player.name : 'Waiting...'}
                     </p>
-                    {player && (
-                      <p className="text-[#1d8c3a] text-xs font-bold uppercase tracking-wide">Ready</p>
-                    )}
+                    <p className={`text-xs font-bold uppercase tracking-wide ${player ? 'text-[#1d8c3a]' : 'text-[#2e3060]'}`}>
+                      {player ? 'Ready' : 'Empty slot'}
+                    </p>
                   </div>
                 </motion.div>
               )
