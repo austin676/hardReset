@@ -23,6 +23,7 @@ const { registerRoleHandlers }     = require('./roleHandlers');
 const { registerMovementHandlers } = require('./movementHandlers');
 const { registerAbilityHandlers }  = require('./abilityHandlers');
 const { registerMeetingHandlers }  = require('./meetingHandlers');
+const { registerTaskHandlers }     = require('./taskHandlers');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -84,6 +85,9 @@ io.on('connection', (socket) => {
 
   // Register emergency meeting and voting listeners (Module 5).
   registerMeetingHandlers(socket, io);
+
+  // Register task progress and sabotage listeners (Module 6).
+  registerTaskHandlers(socket, io);
 
   // Log clean disconnections for visibility (the handler in roomHandlers.js
   // takes care of state cleanup; this is purely for server-level logging).

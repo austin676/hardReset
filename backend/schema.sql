@@ -21,6 +21,9 @@ create table if not exists rooms (
 -- Add game_active to existing installations (safe to run on a live DB)
 alter table rooms add column if not exists game_active boolean not null default false;
 
+-- Add task_progress to existing installations (safe to run on a live DB)
+alter table rooms add column if not exists task_progress integer not null default 0;
+
 -- ---------------------------------------------------------------------------
 -- players
 -- One row per connected player. Deleted automatically when the parent room

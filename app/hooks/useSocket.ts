@@ -44,6 +44,7 @@ export const useSocket = () => {
     setActivityLog,
     addVote,
     clearVotes,
+    setVoteTally,
     setEjectedPlayer,
     setWinner,
     setStats,
@@ -91,20 +92,25 @@ export const useSocket = () => {
     })
 
     // ── Game events (Member 2 backend) ───────────────────────────
-    socket.on('meetingCalled', ({ calledBy, activityLog, players: rawPlayers }: any) => {
-      setActivityLog(activityLog)
+    socket.on('meetingStarted', ({ players: rawPlayers }: any) => {
       if (rawPlayers) setPlayers(rawPlayers.map(normalizePlayer))
       setGamePhase('discussion')
     })
 
-    socket.on('voteResult', ({ ejectedPlayer, wasImposter, votes }: any) => {
+    // ── Vote tally update (targets stay masked until meetingEnded) ──────────
+    socket.on('voteUpdate', ({ tally }: any) => {
+      if (!tally) return
+      const boolTally: Record<string, boolean> = {}
+      Object.entries(tally).forEach(([id, val]) => { boolTally[id] = val === '✓' })
+      setVoteTally(boolTally)
+    })
+
+    socket.on('meetingEnded', ({ ejected, players: rawPlayers }: any) => {
       clearVotes()
-      Object.entries(votes || {}).forEach(([voterId, targetId]) =>
-        addVote(voterId, targetId as string)
-      )
-      const playerObj = players.find((p) => p.id === ejectedPlayer)
-      if (playerObj) setEjectedPlayer(playerObj, wasImposter)
-      setGamePhase('ejection')
+      if (rawPlayers) setPlayers(rawPlayers.map(normalizePlayer))
+      // If nobody was ejected, go straight back to playing.
+      // If ejected is set, playerEjected already set phase to 'ejection'.
+      if (!ejected) setGamePhase('playing')
     })
 
     socket.on('gameEnd', ({ winner, stats, leaderboard }: any) => {
@@ -114,11 +120,14 @@ export const useSocket = () => {
       setGamePhase('results')
     })
 
-    socket.on('playerEjected', ({ playerId }: any) => {
+    socket.on('playerEjected', ({ socketId, role }: any) => {
       const updated = players.map((p) =>
-        p.id === playerId ? { ...p, isAlive: false } : p
+        p.id === socketId ? { ...p, isAlive: false } : p
       )
       setPlayers(updated)
+      const playerObj = players.find((p) => p.id === socketId)
+      if (playerObj) setEjectedPlayer(playerObj, role === 'impostor')
+      setGamePhase('ejection')
     })
 
     socket.on('roundStart', ({ round, myTasks, scores: allScores }: any) => {
@@ -149,10 +158,10 @@ export const useSocket = () => {
 
     // ── Task events (puzzle engine integration) ──────────────────
     socket.on('gameStarted', ({ round, players: allPlayers }: any) => {
-      // role  → delivered privately via roleAssigned
-      // tasks → delivered privately via tasksAssigned
       if (round) setRoundNumber(round)
       if (Array.isArray(allPlayers)) setPlayers(allPlayers.map(normalizePlayer))
+      setGamePhase('playing')
+      window.dispatchEvent(new CustomEvent('socket:gameStarted'))
     })
 
     socket.on('tasksAssigned', ({ myTasks, totalRoomTasks, roomCompletedTasks, roundNumber, players: allPlayers }: any) => {
@@ -223,8 +232,8 @@ export const useSocket = () => {
       if (allScores) setScores(allScores)
     })
 
-    socket.on('timerUpdate', ({ timeLeft }: any) => {
-      setTimeLeft(timeLeft)
+    socket.on('timerUpdate', ({ timer }: any) => {
+      setTimeLeft(timer)
     })
 
     // ── Events from Member 3 (task system) ──────────────────────
@@ -241,8 +250,9 @@ export const useSocket = () => {
       socket.off('roomJoined')
       socket.off('playerListUpdated')
       socket.off('error')
-      socket.off('meetingCalled')
-      socket.off('voteResult')
+      socket.off('meetingStarted')
+      socket.off('voteUpdate')
+      socket.off('meetingEnded')
       socket.off('gameEnd')
       socket.off('playerEjected')
       socket.off('roundStart')
@@ -271,11 +281,15 @@ export const useSocket = () => {
   const joinRoom = (roomId: string, name: string, color: string, topics: string[] = []) =>
     socket.emit('joinRoom', { roomId, name, avatar: color, topics })
 
-  const callMeeting = (calledBy: string) =>
-    socket.emit('callMeeting', { calledBy })
+  const callMeeting = (_calledBy?: string) => {
+    const roomCode = useGameStore.getState().roomCode
+    socket.emit('meetingCalled', { roomId: roomCode })
+  }
 
-  const castVote = (voterId: string, targetId: string) =>
-    socket.emit('castVote', { voterId, targetId })
+  const castVote = (_voterId: string, targetId: string) => {
+    const roomCode = useGameStore.getState().roomCode
+    socket.emit('vote', { roomId: roomCode, targetId })
+  }
 
   const sendChatMessage = (playerId: string, message: string) =>
     socket.emit('chatMessage', { playerId, message })

@@ -14,7 +14,6 @@
  */
 
 const { startRoundTimer } = require('./timerHandlers');
-const { setupGameSession, onRoundEndCallback } = require('./roomHandlers');
 
 const {
   roomExists,
@@ -161,12 +160,6 @@ async function handleStartGame(socket, io, data) {
     await setGameActive(roomId, true);
 
     // -------------------------------------------------------------------------
-    // 5b. Set up in-memory game session: generate tasks, init scores
-    //     (Module integration — roomHandlers owns task/scoring state)
-    // -------------------------------------------------------------------------
-    await setupGameSession(roomId, socket.id, impostors[0], players, io);
-
-    // -------------------------------------------------------------------------
     // 6. Broadcast gameStarted to the whole room
     //    Strip role from the payload so no one can read others' roles
     //    from the broadcast message.
@@ -192,10 +185,8 @@ async function handleStartGame(socket, io, data) {
 
     // -------------------------------------------------------------------------
     // 8. Start the server-authoritative round timer (Module 4)
-    //    Pass onRoundEndCallback so timerHandlers calls our task-regen logic
-    //    when each round expires.
     // -------------------------------------------------------------------------
-    startRoundTimer(roomId, io, undefined, onRoundEndCallback);
+    startRoundTimer(roomId, io);
 
     console.log(
       `[roleHandlers] gameStarted broadcast → room: ${roomId} | ` +

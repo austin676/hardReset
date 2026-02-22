@@ -37,6 +37,7 @@ interface GameStore {
   // Discussion
   activityLog: string[]
   votes: Record<string, string> // voterId -> targetId
+  voteTally: Record<string, boolean> // socketId -> has voted (masked during meeting)
   chatMessages: ChatMessage[]
 
   // Tasks
@@ -77,6 +78,7 @@ interface GameStore {
   setActivityLog: (log: string[]) => void
   addVote: (voterId: string, targetId: string) => void
   clearVotes: () => void
+  setVoteTally: (tally: Record<string, boolean>) => void
   addChatMessage: (msg: Omit<ChatMessage, 'timestamp'>) => void
   setEjectedPlayer: (player: Player, wasImposter: boolean) => void
   setWinner: (winner: 'coders' | 'imposter') => void
@@ -101,6 +103,7 @@ const initialState = {
   abilityPoints: 0,
   activityLog: [],
   votes: {},
+  voteTally: {},
   chatMessages: [],
   myTasks: [] as Task[],
   completedTaskIds: [],
@@ -142,7 +145,9 @@ export const useGameStore = create<GameStore>()(
   addVote: (voterId, targetId) =>
     set((state) => ({ votes: { ...state.votes, [voterId]: targetId } })),
 
-  clearVotes: () => set({ votes: {} }),
+  clearVotes: () => set({ votes: {}, voteTally: {} }),
+
+  setVoteTally: (tally) => set({ voteTally: tally }),
 
   addChatMessage: (msg) =>
     set((state) => ({
