@@ -24,6 +24,7 @@ const { registerMovementHandlers } = require('./movementHandlers');
 const { registerAbilityHandlers }  = require('./abilityHandlers');
 const { registerMeetingHandlers }  = require('./meetingHandlers');
 const { registerTaskHandlers }     = require('./taskHandlers');
+const { registerGameResetHandlers } = require('./gameResetHandlers');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -88,6 +89,9 @@ io.on('connection', (socket) => {
 
   // Register task progress and sabotage listeners (Module 6).
   registerTaskHandlers(socket, io);
+
+  // Register game reset / rematch listeners.
+  registerGameResetHandlers(socket, io);
 
   // Log clean disconnections for visibility (the handler in roomHandlers.js
   // takes care of state cleanup; this is purely for server-level logging).

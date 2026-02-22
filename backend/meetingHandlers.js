@@ -47,6 +47,8 @@ const {
 } = require('./votingUtils');
 
 const { pauseRoundTimer, resumeRoundTimer } = require('./timerHandlers');
+const { checkWinCondition }                  = require('./winCondition');
+const { stopSabotageChecker }                = require('./taskHandlers');
 
 // ---------------------------------------------------------------------------
 // handleMeetingCalled
@@ -343,7 +345,17 @@ async function resolveAndEndMeeting(roomId, io) {
     });
 
     // ----------------------------------------------------------------
-    // 5. Resume round timer from where it was paused
+    // 5. Check win condition before resuming timer
+    // ----------------------------------------------------------------
+    const gameEnded = await checkWinCondition(roomId, null, io);
+    if (gameEnded) {
+      stopSabotageChecker(roomId);
+      console.log(`[meetingHandlers] Game ended after meeting in room: ${roomId}`);
+      return; // gameOver already emitted — do NOT resume timer
+    }
+
+    // ----------------------------------------------------------------
+    // 6. Resume round timer from where it was paused
     // ----------------------------------------------------------------
     resumeRoundTimer(roomId, io);
 

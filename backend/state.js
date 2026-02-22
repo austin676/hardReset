@@ -566,14 +566,123 @@ async function setPlayerAlive(socketId, alive) {
   if (error) throw new Error(`[state] setPlayerAlive failed: ${error.message}`);
   console.log(`[state] Player ${socketId} alive → ${alive}`);
 }
+
 // ---------------------------------------------------------------------------
 // Task & Sabotage helpers (Module 6)
 // ---------------------------------------------------------------------------
 
 /**
+ * incrementTasksCompleted
+ * Bumps a player's tasks_completed count by 1.
+ *
+ * @param {string} socketId
+ */
+async function incrementTasksCompleted(socketId) {
+  const { data, error: readErr } = await supabase
+    .from('players')
+    .select('tasks_completed')
+    .eq('socket_id', socketId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] incrementTasksCompleted read failed: ${readErr.message}`);
+
+  const next = (data?.tasks_completed ?? 0) + 1;
+
+  const { error } = await supabase
+    .from('players')
+    .update({ tasks_completed: next })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] incrementTasksCompleted write failed: ${error.message}`);
+}
+
+/**
+ * awardSabotagePoints
+ * Adds (or subtracts) sabotage points for an impostor.
+ *
+ * @param {string} socketId
+ * @param {number} delta  — positive to award, negative to spend
+ */
+async function awardSabotagePoints(socketId, delta) {
+  const { data, error: readErr } = await supabase
+    .from('players')
+    .select('sabotage_points')
+    .eq('socket_id', socketId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] awardSabotagePoints read failed: ${readErr.message}`);
+
+  const next = Math.max(0, (data?.sabotage_points ?? 0) + delta);
+
+  const { error } = await supabase
+    .from('players')
+    .update({ sabotage_points: next })
+    .eq('socket_id', socketId);
+
+  if (error) throw new Error(`[state] awardSabotagePoints write failed: ${error.message}`);
+}
+
+/**
+ * incrementRoomTaskProgress
+ * Bumps the room-level task_progress counter by 1.
+ *
+ * @param {string} roomId
+ */
+async function incrementRoomTaskProgress(roomId) {
+  const { data, error: readErr } = await supabase
+    .from('rooms')
+    .select('task_progress')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (readErr) throw new Error(`[state] incrementRoomTaskProgress read failed: ${readErr.message}`);
+
+  const next = (data?.task_progress ?? 0) + 1;
+
+  const { error } = await supabase
+    .from('rooms')
+    .update({ task_progress: next })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] incrementRoomTaskProgress write failed: ${error.message}`);
+}
+
+/**
+ * getRoomTaskProgress
+ * Returns the current task_progress value for a room.
+ *
+ * @param {string} roomId
+ * @returns {Promise<number>}
+ */
+async function getRoomTaskProgress(roomId) {
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('task_progress')
+    .eq('room_id', roomId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[state] getRoomTaskProgress failed: ${error.message}`);
+  return data?.task_progress ?? 0;
+}
+
+/**
+ * resetRoomTaskProgress
+ * Resets the room's task_progress counter to 0 (used on rematch).
+ *
+ * @param {string} roomId
+ */
+async function resetRoomTaskProgress(roomId) {
+  const { error } = await supabase
+    .from('rooms')
+    .update({ task_progress: 0 })
+    .eq('room_id', roomId);
+
+  if (error) throw new Error(`[state] resetRoomTaskProgress failed: ${error.message}`);
+}
+
+/**
  * getSabotageStations
- * Returns the full sabotage_stations JSONB object for a room.
- * Shape: { [stationId]: { sabotaged, by, expiresAt } }
+ * Returns the sabotage_stations JSONB object for a room.
  *
  * @param {string} roomId
  * @returns {Promise<Record<string, object>>}
@@ -591,8 +700,7 @@ async function getSabotageStations(roomId) {
 
 /**
  * setSabotageStations
- * Overwrites the sabotage_stations JSONB column for a room.
- * Pass the entire updated map (use sabotageUtils helpers to build/clean it).
+ * Replaces the sabotage_stations JSONB object for a room.
  *
  * @param {string} roomId
  * @param {Record<string, object>} stations
@@ -606,97 +714,6 @@ async function setSabotageStations(roomId, stations) {
   if (error) throw new Error(`[state] setSabotageStations failed: ${error.message}`);
 }
 
-/**
- * incrementTasksCompleted
- * Adds 1 to a player's tasks_completed counter.
- *
- * @param {string} socketId
- */
-async function incrementTasksCompleted(socketId) {
-  const { data, error: readErr } = await supabase
-    .from('players')
-    .select('tasks_completed')
-    .eq('socket_id', socketId)
-    .maybeSingle();
-
-  if (readErr) throw new Error(`[state] incrementTasksCompleted read failed: ${readErr.message}`);
-
-  const next = (data?.tasks_completed ?? 0) + 1;
-  const { error } = await supabase
-    .from('players')
-    .update({ tasks_completed: next })
-    .eq('socket_id', socketId);
-
-  if (error) throw new Error(`[state] incrementTasksCompleted write failed: ${error.message}`);
-}
-
-/**
- * awardSabotagePoints
- * Adds `delta` to a player's sabotage_points (use negative delta to deduct).
- *
- * @param {string} socketId
- * @param {number} delta  — positive to award, negative to spend
- */
-async function awardSabotagePoints(socketId, delta) {
-  const { data, error: readErr } = await supabase
-    .from('players')
-    .select('sabotage_points')
-    .eq('socket_id', socketId)
-    .maybeSingle();
-
-  if (readErr) throw new Error(`[state] awardSabotagePoints read failed: ${readErr.message}`);
-
-  const next = Math.max(0, (data?.sabotage_points ?? 0) + delta);
-  const { error } = await supabase
-    .from('players')
-    .update({ sabotage_points: next })
-    .eq('socket_id', socketId);
-
-  if (error) throw new Error(`[state] awardSabotagePoints write failed: ${error.message}`);
-}
-
-/**
- * incrementRoomTaskProgress
- * Adds 1 to the room-level task_progress counter.
- * Called only for crewmate task completions.
- *
- * @param {string} roomId
- */
-async function incrementRoomTaskProgress(roomId) {
-  const { data, error: readErr } = await supabase
-    .from('rooms')
-    .select('task_progress')
-    .eq('room_id', roomId)
-    .maybeSingle();
-
-  if (readErr) throw new Error(`[state] incrementRoomTaskProgress read failed: ${readErr.message}`);
-
-  const next = (data?.task_progress ?? 0) + 1;
-  const { error } = await supabase
-    .from('rooms')
-    .update({ task_progress: next })
-    .eq('room_id', roomId);
-
-  if (error) throw new Error(`[state] incrementRoomTaskProgress write failed: ${error.message}`);
-}
-
-/**
- * getRoomTaskProgress
- * Returns the current room-wide task_progress counter.
- *
- * @param {string} roomId
- * @returns {Promise<number>}
- */
-async function getRoomTaskProgress(roomId) {
-  const { data, error } = await supabase
-    .from('rooms')
-    .select('task_progress')
-    .eq('room_id', roomId)
-    .maybeSingle();
-
-  if (error) throw new Error(`[state] getRoomTaskProgress failed: ${error.message}`);
-  return data?.task_progress ?? 0;
-}
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -731,10 +748,13 @@ module.exports = {
   setMeetingActive,
   castVote,
   resetAllVotes,
-  setPlayerAlive,  // Module 6 \u2014 task progress & sabotage
-  getSabotageStations,
-  setSabotageStations,
+  setPlayerAlive,
+  // Module 6 — tasks & sabotage
   incrementTasksCompleted,
   awardSabotagePoints,
   incrementRoomTaskProgress,
-  getRoomTaskProgress,};
+  getRoomTaskProgress,
+  getSabotageStations,
+  setSabotageStations,
+  resetRoomTaskProgress,
+};

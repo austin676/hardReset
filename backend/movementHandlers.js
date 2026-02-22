@@ -168,15 +168,9 @@ async function handlePlayerMove(socket, io, data) {
   // Update throttle record immediately (before any async work)
   throttleMap.set(socket.id, { lastMs: now, lastX: bounded.x, lastY: bounded.y });
 
-  // --- Broadcast IMMEDIATELY — don't wait for DB round-trips ---------------
-  socket.to(roomId).emit('playerMoved', {
-    socketId:  socket.id,
-    position:  { x: bounded.x, y: bounded.y },
-    direction: direction ?? 'down',
-  });
-
-  // --- Background DB validation + persist (fire-and-forget) ----------------
-  // Do NOT await these — they must not block the broadcast above
+  // --- Validate, broadcast, and persist ------------------------------------
+  // We need to check timeout before broadcasting, so we do a quick async
+  // validation up-front. The tradeoff: one DB read before broadcast.
   ;(async () => {
     try {
       const [exists, player, meeting] = await Promise.all([
@@ -185,9 +179,21 @@ async function handlePlayerMove(socket, io, data) {
         isMeetingActive(roomId),
       ]);
       if (!exists || !player || !player.alive || meeting) return;
+
+      // Block movement if the player is timed out
+      if (isPlayerTimedOut(player)) return;
+
+      // Broadcast to everyone else in the room
+      socket.to(roomId).emit('playerMoved', {
+        socketId:  socket.id,
+        position:  { x: bounded.x, y: bounded.y },
+        direction: direction ?? 'down',
+      });
+
+      // Persist position to DB (fire-and-forget within this async block)
       await updatePlayerPosition(roomId, socket.id, bounded.x, bounded.y);
     } catch (err) {
-      console.error(`[movementHandlers] background persist error (${socket.id}):`, err.message);
+      console.error(`[movementHandlers] movement processing error (${socket.id}):`, err.message);
     }
   })();
 }

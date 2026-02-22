@@ -53,6 +53,7 @@ const {
 } = require('./sabotageUtils');
 
 const { applyTimeout } = require('./timerHandlers');
+const { checkWinCondition } = require('./winCondition');
 
 // ---------------------------------------------------------------------------
 // In-memory sabotage expiration checkers
@@ -177,22 +178,18 @@ async function handleTaskInteract(socket, io, data) {
       return;
     }
 
-    // --- Guard: player must be alive --------------------------------------
+    // --- Guard: player must exist -----------------------------------------
     const player = await getPlayerState(socket.id);
     if (!player) {
       socket.emit('error', { message: 'Player not found.' });
       return;
     }
-    if (!player.alive) {
-      socket.emit('error', { message: 'Dead players cannot interact with tasks.' });
-      return;
-    }
 
-    // --- Sabotage check ---------------------------------------------------
+    // --- Sabotage check (dead players bypass traps) -----------------------
     const stations = await getSabotageStations(roomId);
     const station  = stations?.[stationId];
 
-    if (isSabotaged(station) && player.role !== 'impostor') {
+    if (player.alive && isSabotaged(station) && player.role !== 'impostor') {
       // Crewmate hit a sabotaged station — freeze them and block access.
       console.warn(
         `[taskHandlers] Station SABOTAGED — applying timeout to crewmate: ${socket.id}`
@@ -266,19 +263,21 @@ async function handleTaskComplete(socket, io, data) {
       return;
     }
 
-    // --- Guard: player must be alive --------------------------------------
+    // --- Guard: player must exist -----------------------------------------
     const player = await getPlayerState(socket.id);
     if (!player) {
       socket.emit('error', { message: 'Player not found.' });
       return;
     }
-    if (!player.alive) {
-      socket.emit('error', { message: 'Dead players cannot complete tasks.' });
+
+    // Dead impostors cannot earn sabotage points
+    if (!player.alive && player.role === 'impostor') {
+      socket.emit('error', { message: 'Dead impostors cannot complete tasks.' });
       return;
     }
 
     // ----------------------------------------------------------------
-    // Branch: Crewmate — real progress
+    // Branch: Crewmate (alive or dead) — real progress
     // ----------------------------------------------------------------
     if (player.role !== 'impostor') {
       await incrementTasksCompleted(socket.id);
@@ -298,6 +297,12 @@ async function handleTaskComplete(socket, io, data) {
         `[taskHandlers] Task completed (crewmate) — ${player.name} | ` +
         `station: ${stationId} | room progress: ${newProgress}`
       );
+
+      // Check if crewmates won by completing all tasks
+      const gameEnded = await checkWinCondition(roomId, newProgress, io);
+      if (gameEnded) {
+        stopSabotageChecker(roomId);
+      }
       return;
     }
 

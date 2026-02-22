@@ -50,6 +50,11 @@ async function handleUseAbility(socket, io, data) {
       return;
     }
 
+    if (self.role !== 'impostor') {
+      socket.emit('error', { message: 'Only impostors can use abilities.' });
+      return;
+    }
+
     // Broadcast to all alive crewmates (everyone except self)
     const targets = players.filter(p => p.socketId !== socket.id && p.alive);
 
